@@ -1,0 +1,145 @@
+/* Linked Quran — layers and the plugin's card (also the plugin's styles.css). */
+/* Layers: a layer listed as lq-… in cssclasses is visible; with none, only the notes remain.
+   Hiding applies only on the surah page (.linkedquran): a verse embedded in another note shows all its layers. */
+.callout[data-callout="layers"] p { margin: .4em 0 .1em; font-size: .85em; color: var(--text-muted); }
+.lq-word { display: flex; flex-wrap: wrap; }
+.linkedquran .lq-word, .linkedquran .lq-arabic-line, .linkedquran .callout[data-callout="translation-1"], .linkedquran .callout[data-callout="translation-2"], .linkedquran .callout[data-callout="translation-3"], .linkedquran .callout[data-callout="translation-4"], .linkedquran .callout[data-callout="translation-5"] { display: none; }
+.lq-word-by-word .lq-word { display: flex; }
+.lq-arabic .lq-arabic-line { display: block; }
+.lq-translation-1 .callout[data-callout="translation-1"] { display: block; }
+.lq-translation-2 .callout[data-callout="translation-2"] { display: block; }
+.lq-translation-3 .callout[data-callout="translation-3"] { display: block; }
+.lq-translation-4 .callout[data-callout="translation-4"] { display: block; }
+.lq-translation-5 .callout[data-callout="translation-5"] { display: block; }
+.linkedquran:not(.lq-word-by-word, .lq-arabic, .lq-translation-1, .lq-translation-2, .lq-translation-3, .lq-translation-4, .lq-translation-5) .callout[data-callout="verse"] { display: none; }
+/* Juz/page in the header: not a text layer, so it does not keep the verse box visible on its own. */
+.linkedquran .lq-juz-label { display: none; }
+.lq-juz .lq-juz-label { display: inline; color: var(--text-muted); font-size: .85em; }
+/* Translation footnotes: on desktop only the hover popup, so Obsidian's lists (under the verse box in Live Preview,
+   at the page end in Reading view) are hidden. A phone has no hover and tapping jumps to the list, so it stays there
+   while the layer is on. Footnotes you write in your own notes on this page also show only in the popup. */
+.linkedquran .callout[data-callout^="translation-"] .footnote-ref, .linkedquran .lq-fn, .linkedquran .footnotes { display: none; }
+.lq-footnote .callout[data-callout^="translation-"] .footnote-ref, .lq-footnote .lq-fn { display: inline; }
+body.is-mobile .lq-footnote .footnotes { display: block; }
+
+/* Size: applies to that page via cssclasses; otherwise the defaults (the snippet's two numbers). */
+.lq-arabic-small { --lq-arabic: 1.2em; }
+.lq-arabic-large { --lq-arabic: 2.4em; }
+.lq-meaning-small { --lq-word: 0.65em; }
+.lq-meaning-large { --lq-word: 1.05em; }
+
+/* One title: the page's own heading (# Al-Fatihah) instead of the file name above it. */
+.linkedquran .inline-title { display: none; }
+/* With the plugin, the Layers box's buttons set the page's cssclasses: the properties block (machine fields) is hidden on surah pages.
+   File properties in the side panel still shows them. Obsidian's own variables: its Live Preview rule outranks a plain display: none. */
+body.lq-plugin .linkedquran { --metadata-display-editing: none; --metadata-display-reading: none; }
+
+/* Verse block ID (^2-255): Obsidian hides it in Reading view; faded in Live Preview. */
+.linkedquran .cm-blockid { opacity: .3; font-size: .75em; }
+
+/* With the Linked Quran plugin (body.lq-plugin): the note is part of the verse box, as on the site.
+   The plugin draws the header (Your personal note · Draft · Publish), hides the %% linkedquran %% lines and
+   marks the note lines; these rules give them the verse box's colour so box and note read as one card. */
+.linkedquran { --lq-card-bg: oklch(from var(--callout-default) l c h / .1); --lq-card-rule: oklch(from var(--callout-default) l c h / .35); }
+.lq-plugin .linkedquran .callout[data-callout="verse"]:has(+ .lq-card-head),
+.lq-plugin .linkedquran .cm-callout:has(+ .lq-card-head) .callout[data-callout="verse"] { margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.lq-plugin .linkedquran :is(.lq-card-head, .lq-card-line, .lq-card-block, .lq-placeholder-reading, .lq-note-divider) {
+  background: var(--lq-card-bg); mix-blend-mode: var(--callout-blend-mode, normal); padding-left: 24px; padding-right: 12px; }
+.lq-plugin .linkedquran .lq-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: .5em; padding-top: .55em; padding-bottom: .35em;
+  border-top: 1px dashed var(--lq-card-rule); font-size: .85em; color: var(--text-muted); font-family: var(--font-interface); }
+.lq-plugin .linkedquran .lq-badge { border: 1px solid var(--background-modifier-border); border-radius: 4px; padding: 0 .45em; color: var(--text-normal); }
+.lq-plugin .linkedquran .lq-badge[data-status="pending"] { border-color: var(--color-yellow); color: var(--color-yellow); }
+.lq-plugin .linkedquran .lq-badge[data-status="published"] { border-color: var(--color-green); color: var(--color-green); }
+/* A note deleted on the site stays in your vault as a draft, under this badge (plugin 1.5.0). */
+.lq-plugin .linkedquran .lq-badge[data-status="deleted"] { border-color: var(--color-red); color: var(--color-red); }
+.lq-plugin .linkedquran .lq-deleted { padding-top: .35em; font-size: .8em; font-family: var(--font-interface); }
+.lq-plugin .linkedquran .lq-spacer { flex: 1; }
+.lq-plugin .linkedquran button.lq-publish { background: none; box-shadow: none; border: 0; height: auto; padding: 0; font: inherit; color: var(--text-accent);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+/* The last line of the card closes it; a verse without a note shows a hint until you click its line. */
+.lq-plugin .linkedquran :is(.lq-card-end, .lq-placeholder-reading) { border-bottom-left-radius: 4px; border-bottom-right-radius: 4px; padding-bottom: .6em; }
+.lq-plugin .linkedquran .lq-placeholder::before { content: attr(data-placeholder); color: var(--text-faint); pointer-events: none; }
+.lq-plugin .linkedquran .lq-placeholder-reading { color: var(--text-faint); font-size: .9em; padding-top: .2em; padding-bottom: .6em; }
+.lq-plugin .linkedquran .lq-placeholder-reading.lq-card-end { margin-bottom: 1em; }
+.lq-plugin .linkedquran .lq-card-block { display: flow-root; }
+.lq-plugin .linkedquran .lq-card-block.lq-card-end { margin-bottom: 1em; }
+.lq-plugin .linkedquran .lq-marker-hidden { display: none; }
+/* Layers box: the written list is hidden once the plugin has read it (its buttons replace it; plugin 1.14.0). */
+.lq-plugin .linkedquran .lq-guide-hidden { display: none; }
+.lq-plugin .linkedquran :is(.lq-note-divider, .lq-marker-divider, .lq-divider-above)::before { content: ""; display: block; border-top: 1px dashed var(--lq-card-rule); }
+.lq-plugin .linkedquran .lq-note-divider { padding-top: .45em; padding-bottom: .45em; }
+.lq-plugin .linkedquran .lq-marker-divider { background: var(--lq-card-bg); padding: .45em 12px .45em 24px; }
+.lq-plugin .linkedquran .lq-marker-divider > * { display: none; }
+.lq-plugin .linkedquran .lq-divider-above::before { margin-top: .5em; }
+
+/* Translations (plugin): names above the verse as tabs, the boxes in one row you can swipe; tab and swipe move together. */
+.lq-tabs { display: flex; flex-wrap: wrap; gap: .35em; margin: .6em 0 .45em; }
+button.lq-tab { height: auto; padding: .2em .8em; border-radius: 999px; border: 1px solid var(--background-modifier-border); background: none; box-shadow: none;
+  font-size: .8em; color: var(--text-muted); cursor: pointer; }
+button.lq-tab[aria-selected="true"] { background: var(--interactive-accent); border-color: var(--interactive-accent); color: var(--text-on-accent); }
+.lq-translations { position: relative; display: flex; align-items: flex-start; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+.lq-translations::-webkit-scrollbar { display: none; }
+.lq-translations > .callout { flex: 0 0 100%; scroll-snap-align: start; margin: 0; }
+.lq-translations > .callout > .callout-title { display: none; }
+.linkedquran .lq-tab[data-translation="translation-1"] { display: none; } .lq-translation-1 .lq-tab[data-translation="translation-1"] { display: inline-block; }
+.linkedquran .lq-tab[data-translation="translation-2"] { display: none; } .lq-translation-2 .lq-tab[data-translation="translation-2"] { display: inline-block; }
+.linkedquran .lq-tab[data-translation="translation-3"] { display: none; } .lq-translation-3 .lq-tab[data-translation="translation-3"] { display: inline-block; }
+.linkedquran .lq-tab[data-translation="translation-4"] { display: none; } .lq-translation-4 .lq-tab[data-translation="translation-4"] { display: inline-block; }
+.linkedquran .lq-tab[data-translation="translation-5"] { display: none; } .lq-translation-5 .lq-tab[data-translation="translation-5"] { display: inline-block; }
+.lq-suggestion-desc { font-size: .8em; color: var(--text-muted); }
+.lq-plugin .linkedquran .lq-relation-type { margin-left: .3em; font-size: .8em; font-style: italic; color: var(--text-muted); }
+
+/* Site layers (plugin 1.6.0): under the card in the site's order; the page's cssclasses lq-… choose which
+   (the buttons under the Layers box add or remove them). Read from linkedquran.com; offline, the last copy. */
+.lq-plugin .linkedquran .lq-layers { font-size: .85em; font-family: var(--font-interface); }
+.lq-plugin .linkedquran .lq-layers-block { background: var(--lq-card-bg); mix-blend-mode: var(--callout-blend-mode, normal); padding: 0 12px .6em 24px;
+  border-bottom-left-radius: 4px; border-bottom-right-radius: 4px; margin-bottom: 1em; }
+.lq-plugin .linkedquran .lq-card-end:has(+ .lq-layers-block) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; margin-bottom: 0; padding-bottom: .2em; }
+.lq-plugin .linkedquran .lq-layer { border-top: 1px dashed var(--lq-card-rule); margin-top: .6em; padding-top: .45em; }
+.lq-plugin .linkedquran .lq-layer-name { color: var(--text-muted); font-size: .85em; letter-spacing: .05em; text-transform: uppercase; margin-bottom: .2em; }
+.lq-plugin .linkedquran .lq-layer-item { padding: .1em 0; }
+.lq-plugin .linkedquran :is(.lq-layer-label, .lq-layer-text) { margin-right: .45em; }
+.lq-plugin .linkedquran .lq-layer-label { font-style: italic; color: var(--text-muted); font-size: .9em; }
+.lq-plugin .linkedquran .lq-layer .lq-badge { margin-left: .4em; font-size: .85em; }
+.lq-plugin .linkedquran :is(.lq-layer-desc, .lq-layer-offline) { color: var(--text-faint); font-size: .9em; }
+.lq-plugin .linkedquran .lq-layer-offline { margin-top: .6em; }
+.lq-plugin .linkedquran .lq-layer-open { margin-top: .2em; }
+.lq-plugin .linkedquran .lq-chip-label { margin-top: .6em; font-size: .85em; color: var(--text-muted); }
+/* Layers box with the plugin (1.10.0): Text · linkedquran.com · Size, each a label and its buttons.
+   On a narrow screen the buttons wrap under their label. */
+.lq-plugin .linkedquran .lq-chip-group { display: flex; flex-wrap: wrap; column-gap: .6em; align-items: baseline; }
+.lq-plugin .linkedquran .lq-chip-group > .lq-chip-label { margin-top: 0; flex: 0 0 8.5em; }
+.lq-plugin .linkedquran .lq-chip-group > .lq-tabs { margin: .2em 0 .35em; flex: 1 1 16em; }
+.lq-plugin .linkedquran button.lq-chip { height: auto; padding: .2em .8em; border-radius: 999px; border: 1px solid var(--background-modifier-border); background: none;
+  box-shadow: none; font-size: .8em; color: var(--text-muted); cursor: pointer; }
+.lq-plugin .linkedquran button.lq-chip[aria-pressed="true"] { background: var(--interactive-accent); border-color: var(--interactive-accent); color: var(--text-on-accent); }
+.lq-plugin .linkedquran .lq-verse-badges .lq-badge { margin-left: .5em; font-size: .8em; }
+
+/* Actions (plugin 1.7.0, with your key): tap an item for its panel (supporters, I agree, Report,
+   suggest), as on the site. Offline actions wait on this device and are sent when connected. */
+.lq-plugin .linkedquran button.lq-item-button, .lq-plugin .linkedquran button.lq-action-link { background: none; box-shadow: none; border: 0;
+  height: auto; padding: 0; font: inherit; color: var(--text-accent); cursor: pointer; text-align: left; }
+.lq-plugin .linkedquran button.lq-action-link { font-size: .9em; letter-spacing: 0; text-transform: none; margin-left: .8em; }
+.lq-plugin .linkedquran .lq-panel-row button.lq-action-link { margin-left: 0; }
+.lq-plugin .linkedquran button.lq-muted { color: var(--text-muted); text-decoration: underline dotted; }
+.lq-plugin .linkedquran .lq-panel { margin: .3em 0 .4em; padding: .5em .7em; background: var(--background-primary);
+  border: 1px solid var(--lq-card-rule); border-radius: 6px; display: grid; gap: .4em; }
+.lq-plugin .linkedquran .lq-panel[hidden] { display: none; }
+.lq-plugin .linkedquran .lq-panel-row { display: flex; flex-wrap: wrap; gap: .4em .9em; align-items: center; }
+.lq-plugin .linkedquran :is(.lq-panel-count, .lq-panel-hint) { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.lq-plugin .linkedquran .lq-panel-hint { font-size: .9em; margin: 0; }
+.lq-plugin .linkedquran button.lq-action-button { height: auto; padding: .15em .75em; border-radius: 999px; border: 1px solid var(--interactive-accent);
+  background: none; box-shadow: none; font-size: .9em; color: var(--text-accent); cursor: pointer; }
+.lq-plugin .linkedquran button.lq-action-button[aria-pressed="true"] { background: var(--interactive-accent); color: var(--text-on-accent); }
+.lq-plugin .linkedquran .lq-verse-badges button.lq-classify { margin-left: .5em; font-size: .8em; }
+.lq-plugin .linkedquran .lq-who { display: inline-block; margin-left: .5em; font-size: .8em; color: var(--text-muted); }
+.lq-plugin .linkedquran .lq-who summary { cursor: pointer; }
+.lq-plugin .lq-modal .lq-modal-field { display: grid; gap: .25em; margin-bottom: .8em; }
+.lq-plugin .lq-modal .lq-modal-label { font-size: .85em; color: var(--text-muted); }
+.lq-plugin .lq-modal :is(textarea, input[type="text"]) { width: 100%; }
+.lq-plugin .lq-modal .lq-modal-chips { display: flex; flex-wrap: wrap; gap: .3em; }
+.lq-plugin .lq-modal button.lq-chip { height: auto; padding: .2em .8em; border-radius: 999px; border: 1px solid var(--background-modifier-border);
+  background: none; box-shadow: none; font-size: .85em; color: var(--text-muted); cursor: pointer; }
+.lq-plugin .lq-modal button.lq-chip[aria-pressed="true"] { background: var(--interactive-accent); border-color: var(--interactive-accent); color: var(--text-on-accent); }
+.lq-plugin .lq-modal .lq-modal-words button.lq-chip { font-family: "LQ Hafs", serif; font-size: 1.1em; }
+.lq-plugin .lq-modal .lq-panel-hint { font-size: .85em; color: var(--text-muted); }
