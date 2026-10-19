@@ -47,6 +47,10 @@ There is no telemetry and no other server.
 | `GET /kuran/kelime/{surah}.json` | no | Nothing | The words of a verse, for the suggestion form |
 | `GET /obsidian/linkedquran/linkedquran.css` | no | Nothing | On startup, if your vault has the `linkedquran.css` snippet, it is updated to the site's current copy; your two size values are kept and the old file is saved as `linkedquran.css.bak` |
 
+To find Linked Quran surah pages, the plugin goes through the vault's list of Markdown files and checks each file's
+path and `type: linkedquran/surah` property (from Obsidian's metadata cache). It reads the contents of surah pages only,
+never of other notes.
+
 The plugin writes only inside your vault: Linked Quran surah pages (and, with **Add surah…** in an empty vault, the `Linked Quran/Surahs` folder with its index files) and, as above, `.obsidian/snippets/linkedquran.css`. Pending actions and per-device timestamps are kept in Obsidian's local storage on that device.
 
 Privacy policy: [linkedquran.com/datenschutz](https://linkedquran.com/datenschutz).
@@ -55,6 +59,10 @@ Privacy policy: [linkedquran.com/datenschutz](https://linkedquran.com/datenschut
 
 This repository holds the released plugin files. The plugin is plain JavaScript without a build step; `main.js`
 is the source.
+
+Each release is published by `.github/workflows/release.yml` with a GitHub artifact attestation for `main.js`,
+`manifest.json` and `styles.css`. To check a downloaded file:
+`gh attestation verify main.js --repo qurancentered/linkedquran-obsidian`.
 
 ## License
 
