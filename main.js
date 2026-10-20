@@ -16,11 +16,14 @@ const {
   Notice, Plugin: EklentiTabani, PluginSettingTab, Setting, TFile, moment, requestUrl, EditorSuggest, Modal, ItemView, MarkdownView, setIcon,
   FuzzySuggestModal,
   editorInfoField, editorLivePreviewField,
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- derlemesiz CommonJS eklenti: Obsidian modülü `require`la gelir
 } = require("obsidian");
-// CodeMirror'u Obsidian verir (derlemesiz eklentide `require` ile).
+// CodeMirror'u Obsidian verir (derlemesiz eklentide `require` ile; paket bağımlılığı yok, çalışma anında Obsidian'ın).
+// eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-extraneous-dependencies -- yukarıdaki gerekçe
 const cm = { ...require("@codemirror/state"), ...require("@codemirror/view") };
 
-const SURUM = "1.14.0";
+const SURUM = "1.15.0";
+const ANAHTAR_ONEK = "lq_"; // senkron anahtarı biçimi (ayar ipucu)
 const VARSAYILAN = { anahtar: "", adres: "https://linkedquran.com" };
 const BEKLEME = 60_000; // son değişiklikten bu kadar sonra gönderilir
 const ACIK_DOSYA = 30_000; // ponytail: açık dosyaya son tuştan bu kadar sonra yazılır; yazma durmazsa bekler
@@ -993,7 +996,7 @@ const silindiSatiri = (ust) => {
 };
 
 /** Live Preview süsleri: kart başlığı, gizli işaret satırları, kart satırları, yer tutucu. */
-function kartAlani(eklenti) {
+const kartAlani = (eklenti) => {
   const { StateField, StateEffect, Decoration, EditorView, WidgetType } = cm;
   // Katman verisi gelince (1.6.0) belge değişmeden yeniden hesap: `yenidenCiz` bunu yollar.
   eklenti.katmanEtkisi = StateEffect.define();
@@ -1141,7 +1144,7 @@ function kartAlani(eklenti) {
       tr.docChanged || tr.selection || tr.reconfigured || tr.effects.some((e) => e.is(eklenti.katmanEtkisi)) ? hesapla(tr.state) : deger,
     provide: (f) => EditorView.decorations.from(f),
   });
-}
+};
 
 const GEZGIN = "linkedquran-gezgin"; // görünüm türü; app.saveLocalStorage anahtarı da: kenara bir kez konur, kişi kapatırsa geri gelmez
 /**
@@ -1161,7 +1164,7 @@ class SureGezgini extends ItemView {
     return GEZGIN;
   }
   getDisplayText() {
-    return "Linked Quran";
+    return this.p.m.ad; // özel ad (METIN), sentence-case dışı
   }
   getIcon() {
     return "book-open";
@@ -1244,7 +1247,7 @@ class SureGezgini extends ItemView {
     if (!h || v?.file !== f || v.getMode() !== "source") return;
     for (const ms of [100, 400, 800, 1500]) {
       await new Promise((r) => window.setTimeout(r, ms));
-      if (this.app.workspace.getActiveViewOfType(MarkdownView) !== v) return;
+      if (this.p.kapali || this.app.workspace.getActiveViewOfType(MarkdownView) !== v) return;
       const e = v.editor.cm;
       e.dispatch({ effects: cm.EditorView.scrollIntoView(e.state.doc.line(h.position.start.line + 1).from, { y: "start", yMargin: 8 }) });
     }
@@ -1308,6 +1311,8 @@ module.exports = class LinkedQuran extends EklentiTabani {
     // Sure gezgini (1.9.0): sol kenarda, bu cihazda bir kez kendiliğinden; sonra komutla.
     this.registerView(GEZGIN, (leaf) => new SureGezgini(leaf, this));
     this.addCommand({ id: "gezgin", name: this.m.gezgin, callback: () => this.gezginAc(true) });
+    // 1.15.0: telefonda sol çekmece tek sekme gösterir, gezgin «Files ⇅»'nin arkasında kalıyordu (o182).
+    this.addRibbonIcon("book-open", this.m.gezgin, () => this.gezginAc(true));
     // Site metni (1.11.0, o166): ilk çalışma eski kasanın geçişidir, özet onayıyla (plan-reviewer o166 #5).
     this.addCommand({ id: "site-metni", name: this.m.tazele, callback: () => this.siteMetni() });
     // Sure ekleme (1.12.0, o168): siteden kasa indirmeden.
@@ -1378,6 +1383,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
   }
 
   onunload() {
+    this.kapali = true; // gezginin hizalama döngüsü uykudan dönünce durur (o172)
     document.body.classList.remove("lq-plugin");
     window.clearTimeout(this.zaman);
     window.clearTimeout(this.yazZaman);
@@ -1673,7 +1679,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
       await a.write(yol, yeni);
       this.app.customCss?.requestLoadSnippets?.();
       new Notice(this.m.snippetYenilendi);
-    } catch { /* bozuk yanıt ya da çevrimdışı: varsayılan kalır */ }
+    } catch { /* çevrimdışı ya da yazılamadı: kasadaki dosya kalır (yalnız .bak yazılmış olabilir) */ }
   }
 
   /** Meal kataloğu (sitenin `dizin.json`'u, yalnız etkin olanlar) ve sure listesi; oturumda bir kez. */
@@ -2504,7 +2510,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
       return d;
     };
     const altlik = createDiv({ cls: "modal-button-container" });
-    const { gonder, metin, hazir } = kur({ m, alan });
+    const { gonder, metin, hazir, odak } = kur({ m, alan });
     const ana = altlik.createEl("button", { text: metin, cls: "mod-cta" });
     altlik.createEl("button", { text: KART.vazgec }).onclick = () => m.close();
     const tazele = () => (ana.disabled = !hazir());
@@ -2518,6 +2524,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
     m.contentEl.addEventListener("click", () => window.setTimeout(tazele));
     tazele();
     m.open();
+    odak?.focus(); // 1.15.0: zamanlayıcısız (o172), açılınca ilk alan
     return m;
   }
 
@@ -2538,8 +2545,8 @@ module.exports = class LinkedQuran extends EklentiTabani {
   bildirPenceresi(s, o) {
     this.pencere(KART.bildirBaslik(o.metin), ({ alan }) => {
       const t = alan(KART.bildirSoru).createEl("textarea", { attr: { rows: 3, maxlength: 2000, "aria-label": KART.bildirSoru } });
-      window.setTimeout(() => t.focus());
       return {
+        odak: t,
         metin: KART.bildirGonder,
         hazir: () => t.value.trim() !== "",
         gonder: () => this.eylem(s, { tur: "bildir", hedef: o.ref, gerekce: t.value.trim() }),
@@ -2581,8 +2588,8 @@ module.exports = class LinkedQuran extends EklentiTabani {
         const liste = await this.ayetKelimeleri(hs, ha);
         if (yuklu === ref) kelimeCiz(liste);
       });
-      window.setTimeout(() => ayet.focus());
       return {
+        odak: ayet,
         metin: KART.oner,
         hazir: () => !!ayetCoz(ayet.value) && !!rol() && (k.kelime !== "zorunlu" || !!aralik),
         gonder: () => {
@@ -2603,8 +2610,8 @@ module.exports = class LinkedQuran extends EklentiTabani {
       const ayet = alan(KART.karsiAyet).createEl("input", { type: "text", attr: { placeholder: KART.ayetIpucu, "aria-label": KART.karsiAyet } });
       const islev = this.secimCipleri(alan(KART.islev), roller);
       const not = alan(KART.neden).createEl("input", { type: "text", attr: { "aria-label": KART.neden, maxlength: 1000 } });
-      window.setTimeout(() => ayet.focus());
       return {
+        odak: ayet,
         metin: KART.iliskiGonder,
         hazir: () => !!ayetCoz(ayet.value) && ayetCoz(ayet.value) !== `${s}:${a}` && !!islev(),
         gonder: () => this.eylem(s, {
@@ -2699,6 +2706,8 @@ class SureSecici extends FuzzySuggestModal {
   }
 }
 
+// Lint `prefer-setting-definitions` uyarısı bilerek açık (satır içi kapatılamıyor): bildirimsel ayar API'si 1.13+ ve
+// ekranı o tanımlardan çizer; minAppVersion 1.8.7 için ikinci bir ayar yolu yazılmaz (o182).
 class Ayarlar extends PluginSettingTab {
   constructor(app, eklenti) {
     super(app, eklenti);
@@ -2715,13 +2724,14 @@ class Ayarlar extends PluginSettingTab {
       .setDesc(e.m.anahtarAcikla)
       .addText((t) => {
         t.inputEl.type = "password";
-        t.setPlaceholder("lq_…")
+        t.setPlaceholder(`${ANAHTAR_ONEK}…`)
           .setValue(e.ayar.anahtar)
           .onChange(async (v) => {
             e.ayar.anahtar = v.trim();
             e.hepsi = true; // yeni anahtarla bütün notlar bir kez gitsin
             await e.saveData(e.ayar);
             e.zamanla();
+            e.yenidenCiz(); // 1.15.0: anahtara bağlı düğmeler (muhkem, eylem) hemen (o170)
           });
       });
     new Setting(containerEl)
