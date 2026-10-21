@@ -21,7 +21,7 @@ const {
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-extraneous-dependencies -- yukarıdaki gerekçe
 const cm = { ...require("@codemirror/state"), ...require("@codemirror/view") };
 
-const SURUM = "1.16.0";
+const SURUM = "1.17.0";
 const ANAHTAR_ONEK = "lq_"; // senkron anahtarı biçimi (ayar ipucu)
 const ANAHTAR = /^lq_[A-Za-z0-9_-]{43}$/; // 1.16.0 bağlantısı: sitenin kasa ucundaki desen
 const VARSAYILAN = { anahtar: "", adres: "https://linkedquran.com" };
@@ -521,6 +521,10 @@ const AYRAC = "%% linkedquran: published %%";
 const SONRAKI_NOT = "%% linkedquran: next note %%";
 const isaretSatiri = (s) => ISARET.test(s);
 const notIsareti = (s) => NOT_ISARETI.exec(ISARET.exec(s)?.[1] ?? "");
+// 1.17.0 (Dilim 2c): sitede sonradan değişen taslağın ve kendi mealin sitedeki hâli, kasadakinin yanında ikinci blok.
+const sitedeIsareti = (id) => `%% linkedquran: on site now · note ${id} %%`;
+const sitedeId = (s) => Number(/^on site now · note (\d{1,18})$/.exec(ISARET.exec(s ?? "")?.[1] ?? "")?.[1]) || null;
+const MEAL_SITEDE = "%% linkedquran: translation on site now %%";
 
 /**
  * `## N` bölümleri: `kutuSon` ayet kutusunun son satırından sonrası (kutu yoksa
@@ -579,17 +583,33 @@ const kartDurumu = (satirlar, k) => {
  * da incelemeye gönderir (o109, rol sunucuda). Alan boşsa metin aynen döner.
  * İşaretsiz not önceki Yayın notuna yapışmasın diye arada `next note`.
  */
+/**
+ * Taslak alanı Publish'te ikiye: `tasinan` Yayın'a gider, `kalan` Taslak'ta kalır. 1.17.0 (kullanıcı kararı o188
+ * «Yalnız benimki»): sitedeki meal farkı ve kartta kendi sürümü duran notun «on site now» bloğu başvuru olarak kalır;
+ * yalnız kasadaki sürüm gider (sitede ikiz not çıkmasın).
+ */
+const taslakAyir = (satirlar, k) => {
+  const taslakSon = k.ayrac >= 0 ? k.ayrac - 1 : k.son;
+  const taslakBloklari = bloklar(satirlar.slice(k.taslak, taslakSon + 1));
+  const kartIdleri = new Set(bloklar(satirlar.slice(k.taslak, k.son + 1)).map(blokId).filter(Boolean));
+  const kalir = (b) => b.isaret === MEAL_SITEDE || kartIdleri.has(sitedeId(b.isaret));
+  const kalan = taslakBloklari.filter(kalir).map(blokYaz).join("\n\n");
+  const tasinan = kalan ? taslakBloklari.filter((b) => !kalir(b)).map(blokYaz).filter(Boolean).join("\n\n")
+    : kirp(satirlar.slice(k.taslak, taslakSon + 1).join("\n"));
+  return { kalan, tasinan, yayimlanir: dolu(tasinan.split("\n"), 0, Infinity) };
+};
+
 const yayimaTasi = (icerik, a) => {
   const satirlar = icerik.replace(/\r\n/g, "\n").split("\n");
   const k = kartlar(satirlar).find((x) => x.a === a);
-  const taslakSon = k ? (k.ayrac >= 0 ? k.ayrac - 1 : k.son) : -1;
-  if (!k || !dolu(satirlar, k.taslak, taslakSon)) return icerik;
-  const tasinan = kirp(satirlar.slice(k.taslak, taslakSon + 1).join("\n"));
+  if (!k) return icerik;
+  const { kalan, tasinan, yayimlanir } = taslakAyir(satirlar, k);
+  if (!yayimlanir) return icerik;
   const yayin = k.ayrac >= 0 ? kirp(satirlar.slice(k.ayrac + 1, k.son + 1).join("\n")) : "";
   const ayrim = yayin && !notIsareti(tasinan.split("\n")[0]) ? [SONRAKI_NOT] : [];
   const bas = satirlar.slice(k.baslik, k.taslak);
   while (bas.length > 1 && bas.at(-1).trim() === "") bas.pop();
-  const bolge = [AYRAC, ...(yayin ? [yayin] : []), ...ayrim, tasinan].join("\n\n");
+  const bolge = [...(kalan ? [kalan] : []), AYRAC, ...(yayin ? [yayin] : []), ...ayrim, tasinan].join("\n\n");
   return [...satirlar.slice(0, k.baslik), ...bas, "", ...bolge.split("\n"), "", ...satirlar.slice(k.son + 1)].join("\n");
 };
 
@@ -649,60 +669,125 @@ const alanIdleri = (icerik) => {
 /**
  * Gönderilecek metin: her bölümden başlık, ayet kutusu, `^s-a` ve ayraçtan
  * sonrası (Yayın alanı). Kendi meal ve Taslak alanı kasada kalır (o145).
+ * 1.17.0: Yayın'a taşınmış «on site now» bloğu, kartın Yayın'ında aynı not yoksa cihaz tabanındaki işaretini
+ * (`taban`: id → [v, durum]) alır; sunucu onu yeni not saymaz. Taban bilmiyorsa ayrı not olarak gider.
  */
-const yayinSuz = (icerik) => {
+const yayinSuz = (icerik, taban = {}) => {
   const satirlar = icerik.replace(/\r\n/g, "\n").split("\n");
   const kk = kartlar(satirlar);
   if (!kk.length) return satirlar.join("\n");
+  const etiket = Object.fromEntries(Object.entries(DURUM).map(([e, d]) => [d, e]));
   const cikti = satirlar.slice(0, kk[0].baslik);
-  for (const k of kk) cikti.push(...satirlar.slice(k.baslik, k.bolge), "", ...(k.ayrac >= 0 ? satirlar.slice(k.ayrac, k.son + 1) : []));
+  for (const k of kk) {
+    const yayin = k.ayrac >= 0 ? satirlar.slice(k.ayrac, k.son + 1) : [];
+    const idler = new Set(bloklar(yayin).map(blokId).filter(Boolean));
+    cikti.push(...satirlar.slice(k.baslik, k.bolge), "", ...yayin.map((s) => {
+      const id = sitedeId(s);
+      if (!id) return s;
+      const t = idler.has(id) ? null : taban[id];
+      if (t) idler.add(id);
+      return t ? `%% linkedquran: note ${id} · v${t[0]} · ${etiket[t[1]] ?? "draft"} %%` : SONRAKI_NOT;
+    }));
+  }
   return cikti.join("\n");
 };
 
+const zamanSayi = (z) => Date.parse(z ?? "") || 0;
+
 /**
  * Bir ayetin yeni bölgesi: yerel meal + Taslak, sunucunun Yayın'ı. Sunucu
- * bölgesi (`kullaniciBolgesi`) bütün notları taşır; yerelde bilinmeyen
- * taslağı (sitede yazılan) yazılmaz. Kurallar docs/veri-tasima.md «1.5.0».
+ * bölgesi (`kullaniciBolgesi`) bütün notları taşır. Kurallar docs/veri-tasima.md
+ * «1.5.0» ve «1.17.0». `t` surenin cihaz tabanı (`n` not id → [v, durum, a],
+ * `mz` ayet → kasadaki meal zamanı, `sil` kasada silinenler); `t.sil` burada güncellenir.
  */
-const bolgeKur = (satirlar, k, sunucu, bekleyen) => {
+const bolgeKur = (satirlar, k, sunucu, bekleyen, a = 0, t = { n: {}, mz: {}, sil: { n: {}, m: {} } }) => {
   const yerel = alanlar(satirlar, k);
   const ss = ["## 0", "", ...sunucu.split("\n")];
   const sb = alanlar(ss, kartlar(ss)[0]);
   const sYayin = new Map(bloklar(sb.yayin).filter(blokId).map((b) => [blokId(b), b]));
   const sTaslak = new Map(bloklar(sb.taslak).filter(blokId).map((b) => [blokId(b), b]));
+  const surum = (b) => Number(notIsareti(b.isaret)?.[2]) || 0;
+  const yerelTaslak = bloklar(yerel.taslak);
+  const yerelYayin = bloklar(yerel.yayin);
+  const yereldeki = new Set(yerelTaslak.map(blokId).filter(Boolean));
+  const yayindaki = new Set(yerelYayin.map(blokId).filter(Boolean));
+  const kartta = new Set([...yereldeki, ...yayindaki]);
   const taslak = [];
-  const yereldeki = new Set();
-  for (const b of bloklar(yerel.taslak)) {
+
+  // Kendi meal (1.17.0): boş yuvaya sitedeki; kasada silineni sitede değişmedikçe yazılmaz; ikisi de varsa ve
+  // sitedeki yeniyse yerel kalır, işaret zamanı tazelenir, sitedeki metin Taslak'ın başına ayrı blok.
+  let meal = kirp(yerel.meal.join("\n"));
+  const ym = bolgeOku(yerel.meal);
+  const sm = bolgeOku(sb.meal);
+  if (sm.meal === null || ym.meal !== null) delete t.sil.m[a];
+  if (sm.meal !== null && ym.meal === null) {
+    const silinen = t.sil.m[a] ?? t.mz[a];
+    if (silinen !== undefined && zamanSayi(sm.zaman) <= zamanSayi(silinen)) t.sil.m[a] = silinen;
+    else {
+      delete t.sil.m[a];
+      meal = kirp(sb.meal.join("\n"));
+    }
+  } else if (sm.meal !== null && zamanSayi(sm.zaman) > zamanSayi(ym.zaman)) {
+    const isaret = `%% linkedquran: translation · ${sm.zaman} %%`;
+    const satir = yerel.meal.findIndex((s) => MEAL_ISARETI.test(ISARET.exec(s)?.[1] ?? ""));
+    meal = kirp((satir < 0 ? [isaret, ...yerel.meal] : yerel.meal.map((s, i) => (i === satir ? isaret : s))).join("\n"));
+    if (sm.meal !== ym.meal) taslak.push({ isaret: MEAL_SITEDE, govde: [sm.meal] });
+  }
+
+  for (const b of yerelTaslak) {
     const id = blokId(b);
-    if (id) yereldeki.add(id);
-    if (id && sYayin.has(id)) {
+    const sid = sitedeId(b.isaret);
+    if (sid && !kartta.has(sid) && sTaslak.has(sid)) {
+      // Yerel sürüm silinmiş: «on site now» bloğu notun işaretini devralır, metin kasadaki.
+      kartta.add(sid);
+      yereldeki.add(sid);
+      taslak.push({ isaret: sTaslak.get(sid).isaret, govde: b.govde });
+    } else if (id && sYayin.has(id)) {
       // 1. Sitede yayımlandı: aynı metin Yayın'da; farklıysa yerel metin işaretsiz taslak kalır.
       if (blokMetni(b) === blokMetni(sYayin.get(id))) continue;
       taslak.push({ isaret: taslak.length ? SONRAKI_NOT : null, govde: b.govde });
-    } else if (id && sTaslak.has(id)) taslak.push({ isaret: sTaslak.get(id).isaret, govde: b.govde }); // 2. işaret tazelenir, metin yerel
-    else if (id) taslak.push({ isaret: SILINDI, govde: b.govde }); // 3. sitede silindi
+    } else if (id && sTaslak.has(id)) {
+      // 2. İşaret tazelenir, metin yerel; sitede sonradan değiştiyse sitedeki metin altında ayrı blok (1.17.0).
+      const s = sTaslak.get(id);
+      taslak.push({ isaret: s.isaret, govde: b.govde });
+      if (surum(s) > surum(b) && blokMetni(s) !== blokMetni(b)) taslak.push({ isaret: sitedeIsareti(id), govde: s.govde });
+    } else if (id) taslak.push({ isaret: SILINDI, govde: b.govde }); // 3. sitede silindi
     else taslak.push(b);
   }
-  const yerelYayin = bloklar(yerel.yayin);
-  const yayindaki = new Set(yerelYayin.map(blokId).filter(Boolean));
-  // 4. Sitede yayımdan çıkan (geri çekilen, reddedilen) ya da bu cihazın bekleyen notu Taslak'a iner.
-  for (const [id, b] of sTaslak) if (!yereldeki.has(id) && (yayindaki.has(id) || bekleyen.has(id))) taslak.push(b);
+  for (const id of kartta) delete t.sil.n[id];
+  for (const [id, b] of sTaslak) {
+    if (yereldeki.has(id)) continue;
+    // 4. Sitede yayımdan çıkan (geri çekilen, reddedilen) ya da bu cihazın bekleyen notu Taslak'a iner.
+    if (yayindaki.has(id) || bekleyen.has(id)) {
+      taslak.push(b);
+      continue;
+    }
+    // 6. (1.17.0) Kasada olmayan site taslağı yazılır; bu cihazın bilip kasada silineni sitede yeni sürüm almadıkça
+    // yazılmaz (`sil` cihaza özel: boş tabanlı yeni cihaz onu bir kez getirir).
+    const silinen = t.sil.n[id]?.[0] ?? t.n[id]?.[0];
+    if (silinen !== undefined && surum(b) <= silinen) t.sil.n[id] = [silinen, a];
+    else {
+      delete t.sil.n[id];
+      taslak.push(b);
+    }
+  }
+  for (const id in t.sil.n) if (t.sil.n[id][1] === a && !sTaslak.has(Number(id)) && !sYayin.has(Number(id))) delete t.sil.n[id];
   // 5. Yayın'daki not sitede yok: metin Taslak'ta kalır (Yayın'da kalsa yeniden yayımlanırdı).
   for (const b of yerelYayin) if (blokId(b) && !sYayin.has(blokId(b)) && !sTaslak.has(blokId(b))) taslak.push({ isaret: SILINDI, govde: b.govde });
   const yayin = kirp(sb.yayin.join("\n"));
-  return [kirp(yerel.meal.join("\n")), taslak.map(blokYaz).filter(Boolean).join("\n\n"), yayin ? `${AYRAC}\n\n${yayin}` : ""]
+  return [meal, taslak.map(blokYaz).filter(Boolean).join("\n\n"), yayin ? `${AYRAC}\n\n${yayin}` : ""]
     .filter(Boolean).join("\n\n");
 };
 
 /** Çekme (1.5.0): her ayetin bölgesi `bolgeKur`la, sonra `yerlestir`; `tut`taki ayete dokunulmaz. */
-const birlestir = (icerik, { bolgeler, tut = [] }, bekleyen = new Set()) => {
+const birlestir = (icerik, { bolgeler, tut = [] }, bekleyen = new Set(), taban) => {
   const satirlar = icerik.replace(/\r\n/g, "\n").split("\n");
   const tutulan = new Set(tut.map(Number));
   const yerel = new Map();
   for (const k of kartlar(satirlar)) if (!yerel.has(k.a)) yerel.set(k.a, k);
   const yeni = {};
   for (const a of new Set([...yerel.keys(), ...Object.keys(bolgeler).map(Number)])) {
-    if (!tutulan.has(a)) yeni[a] = bolgeKur(satirlar, yerel.get(a), bolgeler[a] ?? "", bekleyen);
+    if (!tutulan.has(a)) yeni[a] = bolgeKur(satirlar, yerel.get(a), bolgeler[a] ?? "", bekleyen, a, taban);
   }
   return yerlestir(icerik, { bolgeler: yeni, tut, bos: "" });
 };
@@ -901,6 +986,9 @@ const KART = {
   ilisiksiz: "no relation",
   geriAl: "Back to draft", // sitenin `tefsir_withdraw`ı
   silindi: "Deleted on site",
+  sitedeTaslak: "Draft on site", // 1.17.0: Taslak alanında sitede de taslak olarak duran not
+  sitede: "On site now", // sitede sonradan değişen taslağın sitedeki metni
+  mealSitede: "Translation on site now",
   sitedeAc: "Open on site",
   cevrimdisi: (t) => `Offline · layers as of ${t}`,
   // Layers kutusunun grupları (1.10.0)
@@ -1001,10 +1089,23 @@ const mealSec = (satir) => {
   }
 };
 
-/** Sitede silinen notun rozet satırı (iki kip). */
-const silindiSatiri = (ust) => {
-  const d = createDiv({ cls: `lq-card-line lq-deleted${ust ? " lq-divider-above" : ""}` });
-  d.createSpan({ cls: "lq-badge", text: KART.silindi, attr: { "data-status": "deleted" } });
+/**
+ * İşaret satırının rozeti (iki kip): `deleted on site` (1.5.0) her alanda; 1.17.0'dan Taslak alanındaki taslak
+ * işareti «Draft on site», «on site now» blokları. Rozetsiz işaret null.
+ */
+const rozet = (s, taslakta) => {
+  const t = s.trim();
+  if (t === SILINDI) return [KART.silindi, "deleted"];
+  if (t === MEAL_SITEDE) return [KART.mealSitede, "on-site"];
+  if (sitedeId(t)) return [KART.sitede, "on-site"];
+  if (taslakta && notIsareti(t)?.[3] === "draft") return [KART.sitedeTaslak, "site-draft"];
+  return null;
+};
+
+/** Rozet satırı; alanda önceki not varsa üstünde çizgi. */
+const rozetSatiri = (ust, [metin, durum]) => {
+  const d = createDiv({ cls: `lq-card-line lq-badge-line${ust ? " lq-divider-above" : ""}` });
+  d.createSpan({ cls: "lq-badge", text: metin, attr: { "data-status": durum } });
   return d;
 };
 
@@ -1049,17 +1150,18 @@ const kartAlani = (eklenti) => {
       return createDiv({ cls: "lq-note-divider" });
     }
   }
-  // `deleted on site` (1.5.0): kart satırında kırmızı rozet; alanda önceki not varsa üstünde çizgi.
-  class Silindi extends WidgetType {
-    constructor(ust) {
+  // İşaret rozeti (`rozet`): kart satırında; alanda önceki not varsa üstünde çizgi.
+  class Rozet extends WidgetType {
+    constructor(ust, r) {
       super();
       this.ust = ust;
+      this.r = r;
     }
     eq(o) {
-      return o.ust === this.ust;
+      return o.ust === this.ust && o.r[0] === this.r[0];
     }
     toDOM() {
-      return silindiSatiri(this.ust);
+      return rozetSatiri(this.ust, this.r);
     }
   }
   // Siteden okunan katmanlar (1.6.0): kartın son satırının altında blok.
@@ -1101,7 +1203,7 @@ const kartAlani = (eklenti) => {
       if (k.kutuSon < 0) continue;
       const durum = kartDurumu(satirlar, k);
       const taslakSon = k.ayrac >= 0 ? k.ayrac - 1 : k.son;
-      const bas = { tur: "taslak", yol: file.path, a: k.a, dolu: durum.taslak };
+      const bas = { tur: "taslak", yol: file.path, a: k.a, dolu: durum.taslak, yayimlanir: taslakAyir(satirlar, k).yayimlanir };
       if (k.bolge > k.kutuSon) gizle(k.kutuSon, k.bolge - 1, new Baslik(bas));
       // `^s-a` yoksa başlık kutunun son satırının sonunda (dosya sonunda da geçerli konum).
       else d.push(Decoration.widget({ block: true, side: 1, widget: new Baslik(bas) }).range(satir(k.kutuSon - 1).to));
@@ -1117,8 +1219,9 @@ const kartAlani = (eklenti) => {
           else gizle(i, i);
           continue;
         }
-        if (s.trim() === SILINDI) {
-          gizle(i, i, new Silindi(icerikGordu[alan]));
+        const r = rozet(s, alan === "taslak");
+        if (r) {
+          gizle(i, i, new Rozet(icerikGordu[alan], r));
           continue;
         }
         if (isaretSatiri(s)) {
@@ -1428,7 +1531,10 @@ module.exports = class LinkedQuran extends EklentiTabani {
   }
 
   sure(no) {
-    return (this.cihaz.s[no] ??= { n: {}, b: {}, k: 0 });
+    const s = (this.cihaz.s[no] ??= { n: {}, b: {}, k: 0 });
+    s.mz ??= {}; // 1.17.0: ayet → kasadaki kendi mealin işaret zamanı (kasada silineni tanımak için)
+    s.sil ??= { n: {}, m: {} }; // 1.17.0: kasada silinen site taslağı (id → [v, ayet]) ve meal (ayet → zaman); `tabanKur` silmez
+    return s;
   }
 
   kaydet() {
@@ -1489,6 +1595,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
       const o = oku(icerik);
       const ids = new Set();
       for (const [a, x] of o.ayetler) {
+        if (x.meal !== null) s.mz[a] = x.zaman ?? "";
         for (const t of x.notlar) {
           ids.add(t.id);
           if (!s.n[t.id] || t.v > s.n[t.id][0]) s.n[t.id] = [t.v, t.durum, a];
@@ -1521,7 +1628,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
       // başarılı turdakiyle aynıysa gönderilmez. Yarım dosya, silinecek ya da geri çekilecek
       // not varsa yine gider. `izler`/`isaretler`/taban yukarıda her durumda güncellendi
       // (yazma kapısı bayatlamasın; plan-reviewer o148 2. tur #1, #2).
-      const giden = incelt(yayinSuz(icerik)); // yalnız Yayın alanı (1.5.0)
+      const giden = incelt(yayinSuz(icerik, s.n)); // yalnız Yayın alanı (1.5.0)
       const oz = md5(giden);
       if (tur === "kirli" && !yarim.has(f.path) && !geri.length && !sil.some((x) => x.sure === y.sure) && this.giden.get(f.path) === oz) continue;
       ozler.set(f.path, oz);
@@ -1648,9 +1755,10 @@ module.exports = class LinkedQuran extends EklentiTabani {
       // Değişiklik yoksa hiç yazılmaz: yazım iCloud'da öteki cihaza `modify` olarak gider.
       const once = await this.app.vault.cachedRead(f);
       let sonra = null;
+      const y = this.yer(f, once);
       if (md5(once) === this.izler.get(yol)) {
         const bekleyen = new Set(Object.values(this.cihaz.s).flatMap((s) => Object.keys(s.b).map(Number)));
-        sonra = birlestir(once, x, bekleyen);
+        sonra = birlestir(once, x, bekleyen, y ? this.sure(y.sure) : undefined);
         if (sonra !== once) {
           this.kendi.set(yol, sonra);
           await this.app.vault.process(f, (data) => {
@@ -1665,9 +1773,8 @@ module.exports = class LinkedQuran extends EklentiTabani {
       if (sonra === null) continue;
       this.yazilacak.delete(yol);
       this.izler.set(yol, md5(sonra));
-      this.giden.set(yol, md5(incelt(yayinSuz(sonra))));
-      const y = this.yer(f, sonra);
       if (y) this.tabanKur(yol, y.sure, sonra, x.tut ?? []);
+      this.giden.set(yol, md5(incelt(yayinSuz(sonra, y ? this.sure(y.sure).n : {}))));
     }
     this.kaydet();
     this.cubuk();
@@ -1710,8 +1817,8 @@ module.exports = class LinkedQuran extends EklentiTabani {
 
   /**
    * Meal kataloğu (sitenin `dizin.json`'u, yalnız etkin olanlar) ve kelime kaynakları; oturumda bir kez. `/kuran/*`
-   * bir yıl `immutable` sunulur, istemci `?v=` ekler (`next.config.mjs`): eklenti eklemiyordu, Obsidian'ın ağ önbelleği
-   * eski kopyayı veriyordu (o185 S14: `kelimeKaynaklari` yoktu).
+   * bir yıl `immutable` sunulur (`next.config.mjs`) ve damgasız adres Obsidian'ın ağ önbelleğinden eski kopyayı
+   * veriyordu (o185 S14: `kelimeKaynaklari` yoktu); `?v=` her istekte önbelleği atlar.
    */
   async katalogAl() {
     if (this.katalog) return this.katalog;
@@ -1928,10 +2035,10 @@ module.exports = class LinkedQuran extends EklentiTabani {
     }
     if (!metin.mealler.length && !metin.kelime && !metin.arapca) return uyar(this.m.sureEkleMealYok, 10_000); // kapı 4
     return this.sirala(async () => {
-      await this.snippetGuncelle(true);
       const mevcut = new Map(this.sureDosyalari().map((x) => [x.y.sure, x]));
       const eksik = AYET_SAYILARI.map((_, i) => i + 1).filter((n) => !mevcut.has(n));
       if (!eksik.length) return uyar(this.m.eksikYok);
+      await this.snippetGuncelle(true); // tam kasada silinen snippet geri gelmesin (kapı 5 «Kurulumda», o185 sapma #3)
       const ust = (p) => p.slice(0, Math.max(0, p.lastIndexOf("/")));
       const ilk = mevcut.values().next().value;
       let klasor = ilk && ust(ilk.f.path);
@@ -2000,6 +2107,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
     const tutulan = new Set(tut.map(Number));
     for (const id in s.n) if (!tutulan.has(s.n[id][2])) delete s.n[id];
     for (const id in s.b) if (!tutulan.has(s.b[id])) delete s.b[id];
+    for (const a in s.mz) if (!tutulan.has(Number(a))) delete s.mz[a];
     delete s.m; // 1.4.0 meal tabanı
     const o = oku(icerik);
     const ids = new Set();
@@ -2007,6 +2115,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
       x.notlar.forEach((t) => ids.add(t.id));
       if (tutulan.has(a)) continue;
       for (const t of x.notlar) s.n[t.id] = [t.v, t.durum, a];
+      if (x.meal !== null) s.mz[a] = x.zaman ?? "";
     }
     s.k = o.k;
     this.isaretler.set(yol, ids);
@@ -2025,7 +2134,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
     if (!x.dolu) return d;
     d.createSpan({ cls: "lq-badge", text: KART.taslak });
     const rol = this.ayar.anahtar ? this.cihaz.rol : null;
-    if (rol === "aday" || YAYINCI.includes(rol)) this.dugme(d, rol === "aday" ? KART.gonder : KART.yayimla, () => this.yayimla(x.yol, x.a));
+    if (x.yayimlanir !== false && (rol === "aday" || YAYINCI.includes(rol))) this.dugme(d, rol === "aday" ? KART.gonder : KART.yayimla, () => this.yayimla(x.yol, x.a));
     return d;
   }
 
@@ -2086,7 +2195,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
     const durum = kartDurumu(satirlar, k);
     const kutu = el.querySelector('.callout[data-callout="verse"]');
     if (kutu) {
-      const b = this.baslik({ tur: "taslak", yol: f.path, a: k.a, dolu: durum.taslak });
+      const b = this.baslik({ tur: "taslak", yol: f.path, a: k.a, dolu: durum.taslak, yayimlanir: taslakAyir(satirlar, k).yayimlanir });
       kutu.after(b);
       if (!durum.taslak) {
         const yer = createDiv({ cls: `lq-placeholder-reading${durum.yayin ? "" : " lq-card-end"}`, text: KART.yerTutucu });
@@ -2101,9 +2210,10 @@ module.exports = class LinkedQuran extends EklentiTabani {
     const alanBas = k.ayrac >= 0 && bilgi.lineStart > k.ayrac ? k.ayrac + 1 : k.taslak;
     const oncesi = dolu(satirlar, alanBas, bilgi.lineStart - 1);
     if (satirlarim.every((s) => s.trim() === "" || isaretSatiri(s))) {
-      if (satirlarim.some((s) => s.trim() === SILINDI)) {
+      const r = satirlarim.map((s) => rozet(s, k.ayrac < 0 || bilgi.lineStart < k.ayrac)).find(Boolean);
+      if (r) {
         el.empty();
-        el.append(silindiSatiri(oncesi));
+        el.append(rozetSatiri(oncesi, r));
         return;
       }
       if (bilgi.lineStart <= k.ayrac && k.ayrac <= bilgi.lineEnd) {

@@ -52,7 +52,9 @@ body.lq-plugin .linkedquran { --metadata-display-editing: none; --metadata-displ
 .lq-plugin .linkedquran .lq-badge[data-status="published"] { border-color: var(--color-green); color: var(--color-green); }
 /* A note deleted on the site stays in your vault as a draft, under this badge (plugin 1.5.0). */
 .lq-plugin .linkedquran .lq-badge[data-status="deleted"] { border-color: var(--color-red); color: var(--color-red); }
-.lq-plugin .linkedquran .lq-deleted { padding-top: .35em; font-size: .8em; font-family: var(--font-interface); }
+/* Plugin 1.17.0: a draft that is also on the site, and the site's newer text of a draft or your own translation. */
+.lq-plugin .linkedquran .lq-badge[data-status="on-site"] { border-color: var(--color-orange); color: var(--color-orange); }
+.lq-plugin .linkedquran .lq-badge-line { padding-top: .35em; font-size: .8em; font-family: var(--font-interface); }
 .lq-plugin .linkedquran .lq-spacer { flex: 1; }
 .lq-plugin .linkedquran button.lq-publish { background: none; box-shadow: none; border: 0; height: auto; padding: 0; font: inherit; color: var(--text-accent);
   text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }

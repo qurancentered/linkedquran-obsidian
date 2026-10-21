@@ -3,15 +3,17 @@
 Read and study the Quran in your Obsidian vault the way you do on [linkedquran.com](https://linkedquran.com):
 each verse as a card with your own note, translation tabs, word by word, and the site's study layers
 (related verses, rulings, topics, prayers and more). Notes you publish sync with your account on the site;
-drafts stay in your vault.
+drafts you write in the vault stay there.
 
 ## What it does
 
 - Shows Linked Quran surah pages as verse cards: your note inside the verse box, a **Publish** button,
   translation tabs, and `/2:255` to insert a verse.
 - Draws the site's public layers under each verse; the buttons in the **Layers** box turn them on and off.
-- Syncs the notes you publish with linkedquran.com both ways. With your key you can also agree, report,
-  vote and suggest from the layers, as on the site.
+- Syncs the notes you publish with linkedquran.com both ways. Drafts and your own translation written on the site
+  come down to the vault too (a draft is marked **Draft on site**); if one later changes on the site, the site's text
+  arrives as a separate **On site now** block next to yours and you decide which to keep. With your key you can also
+  agree, report, vote and suggest from the layers, as on the site.
 - Sets up your vault without a download: choose translations, word by word and Arabic in the settings and close
   them, and the surahs missing from your vault (all 114) are written from the site, with your favourites,
   bookmarks and collections.
