@@ -21,7 +21,7 @@ const {
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-extraneous-dependencies -- yukarıdaki gerekçe
 const cm = { ...require("@codemirror/state"), ...require("@codemirror/view") };
 
-const SURUM = "1.17.0";
+const SURUM = "1.17.1";
 const ANAHTAR_ONEK = "lq_"; // senkron anahtarı biçimi (ayar ipucu)
 const ANAHTAR = /^lq_[A-Za-z0-9_-]{43}$/; // 1.16.0 bağlantısı: sitenin kasa ucundaki desen
 const VARSAYILAN = { anahtar: "", adres: "https://linkedquran.com" };
@@ -728,15 +728,24 @@ const bolgeKur = (satirlar, k, sunucu, bekleyen, a = 0, t = { n: {}, mz: {}, sil
       meal = kirp(sb.meal.join("\n"));
     }
   } else if (sm.meal !== null && zamanSayi(sm.zaman) > zamanSayi(ym.zaman)) {
+    // İşaretsiz yerel meale de işaret yazılır: yoksa her çekme sitedekini yeni sayıp blok açardı.
     const isaret = `%% linkedquran: translation · ${sm.zaman} %%`;
     const satir = yerel.meal.findIndex((s) => MEAL_ISARETI.test(ISARET.exec(s)?.[1] ?? ""));
     meal = kirp((satir < 0 ? [isaret, ...yerel.meal] : yerel.meal.map((s, i) => (i === satir ? isaret : s))).join("\n"));
     if (sm.meal !== ym.meal) taslak.push({ isaret: MEAL_SITEDE, govde: [sm.meal] });
   }
 
+  // 1.17.1 (kullanıcı kararı o188 «Yenisi yerine geçsin»): sitede yeniden değişen taslağın ve mealin eski «on site
+  // now» bloğu yenisiyle değişir (eski blokta elle yapılan düzeltme gider).
+  const yenilenen = new Set(yerelTaslak.filter((b) => {
+    const s = sTaslak.get(blokId(b));
+    return s && surum(s) > surum(b) && blokMetni(s) !== blokMetni(b);
+  }).map(blokId));
+  const mealYenilendi = taslak.some((b) => b.isaret === MEAL_SITEDE);
   for (const b of yerelTaslak) {
     const id = blokId(b);
     const sid = sitedeId(b.isaret);
+    if (yenilenen.has(sid) || (mealYenilendi && b.isaret === MEAL_SITEDE)) continue;
     if (sid && !kartta.has(sid) && sTaslak.has(sid)) {
       // Yerel sürüm silinmiş: «on site now» bloğu notun işaretini devralır, metin kasadaki.
       kartta.add(sid);
@@ -1102,9 +1111,9 @@ const rozet = (s, taslakta) => {
   return null;
 };
 
-/** Rozet satırı; alanda önceki not varsa üstünde çizgi. */
-const rozetSatiri = (ust, [metin, durum]) => {
-  const d = createDiv({ cls: `lq-card-line lq-badge-line${ust ? " lq-divider-above" : ""}` });
+/** Rozet satırı; alanda önceki not varsa üstünde çizgi. `ic`: okuma kipinde not bloğunun içinde (kart satırı değil). */
+const rozetSatiri = (ust, [metin, durum], ic = false) => {
+  const d = createDiv({ cls: `${ic ? "" : "lq-card-line "}lq-badge-line${ust ? " lq-divider-above" : ""}` });
   d.createSpan({ cls: "lq-badge", text: metin, attr: { "data-status": durum } });
   return d;
 };
@@ -2225,6 +2234,9 @@ module.exports = class LinkedQuran extends EklentiTabani {
     }
     el.addClass("lq-card-block");
     if (oncesi && notIsareti(satirlarim[0])) el.addClass("lq-divider-above");
+    // İşaret satırı metinle tek paragraf bölümü olur (okuma kipi): rozet bloğun başına (1.17.1; `deleted on site` de).
+    const r = rozet(satirlarim.find((s) => s.trim() !== "") ?? "", k.ayrac < 0 || bilgi.lineStart < k.ayrac);
+    if (r) el.prepend(rozetSatiri(false, r, true));
     if (!dolu(satirlar, bilgi.lineEnd + 1, k.son)) {
       el.addClass("lq-card-end");
       this.seritKoy(el, f, k.a, true);
