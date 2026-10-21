@@ -14,7 +14,6 @@
 // kararları o144 «yalnız yayımlanan gider», o145 «Aynısı olsun», rozet «A»).
 const {
   Notice, Plugin: EklentiTabani, PluginSettingTab, Setting, TFile, moment, requestUrl, EditorSuggest, Modal, ItemView, MarkdownView, setIcon,
-  FuzzySuggestModal,
   editorInfoField, editorLivePreviewField,
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- derlemesiz CommonJS eklenti: Obsidian modülü `require`la gelir
 } = require("obsidian");
@@ -22,8 +21,9 @@ const {
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-extraneous-dependencies -- yukarıdaki gerekçe
 const cm = { ...require("@codemirror/state"), ...require("@codemirror/view") };
 
-const SURUM = "1.15.0";
+const SURUM = "1.16.0";
 const ANAHTAR_ONEK = "lq_"; // senkron anahtarı biçimi (ayar ipucu)
+const ANAHTAR = /^lq_[A-Za-z0-9_-]{43}$/; // 1.16.0 bağlantısı: sitenin kasa ucundaki desen
 const VARSAYILAN = { anahtar: "", adres: "https://linkedquran.com" };
 const BEKLEME = 60_000; // son değişiklikten bu kadar sonra gönderilir
 const ACIK_DOSYA = 30_000; // ponytail: açık dosyaya son tuştan bu kadar sonra yazılır; yazma durmazsa bekler
@@ -92,7 +92,7 @@ const METIN = {
     tazele: "Site metnini yenile (bütün sureler)",
     tazeleEvet: "Yenile",
     metinBaslik: "Kasadaki metin",
-    metinAcikla: "Mealler, kelime meali ve Arapça sure sayfalarına siteden yazılır. Değiştirip bu ekranı kapatınca bütün sayfaların yenilenmesi onayına sorulur (ilk seferde «Site metnini yenile»yi çalıştır); açtığın sure sayfası da haftada bir kendiliğinden yenilenir. Notların ve taslakların değişmez.",
+    metinAcikla: "Mealler, kelime meali ve Arapça sure sayfalarına siteden yazılır. Seçip bu ekranı kapatınca kasada olmayan sureler (114'ün hepsi) indirilir; seçimi sonradan değiştirince var olan sayfaların yenilenmesi sorulur. Açtığın sure sayfası da haftada bir kendiliğinden yenilenir. Notların ve taslakların değişmez.",
     mealler: "Mealler (en çok 5, sekme sırası)",
     mealEkle: "Meal ekle",
     kaldir: "Kaldır",
@@ -102,16 +102,19 @@ const METIN = {
     katalogYok: "Meal listesi yüklenemedi (çevrimdışı mı?).",
     ayarOkunamadi: (p) => `Linked Quran: sayfalarındaki mealler katalogda tek bir meale denk gelmedi${p ? ` («${p}»)` : ""}. Eklenti ayarından mealleri seç.`,
     tazeleOzet: (n, mealler, kelime, arapca) =>
-      `${n} sure sayfasının site metni yenilenecek: ${[arapca ? "Arapça" : null, kelime ? `kelime meali (${kelime.toUpperCase()})` : null, ...mealler].filter(Boolean).join(", ") || "metinsiz"}. Notların, taslakların ve kendi mealin değişmez.`,
+      `${n} sure sayfasının site metni yenilenecek: ${[arapca ? "Arapça" : null, kelime ? `kelime meali (${kelime})` : null, ...mealler].filter(Boolean).join(", ") || "metinsiz"}. Notların, taslakların ve kendi mealin değişmez.`,
     tazeleBitti: (y, a, atlanan) => `Linked Quran: ${y} sayfa yenilendi, ${a} sayfa zaten günceldi.${atlanan.length ? `
 Yazılmayan: ${atlanan.join(" · ")}` : ""}`,
-    // 1.12.0 sure ekleme (o168)
-    sureEkle: "Sure ekle…",
     snippetYenilendi: "Linked Quran: kasanın görünüm dosyası (linkedquran.css) güncellendi; eskisi linkedquran.css.bak.",
-    sureEkleIpucu: "Sure adı ya da numarası",
+    // 1.16.0 eklentiyle kurulum (o185)
+    sureEkle: "Eksik sureleri ekle",
     sureEkleMealYok: "Linked Quran: önce eklenti ayarında «Kasadaki metin»den mealleri seç.",
-    sureEklendi: (ad) => `Linked Quran: ${ad} eklendi.`,
-    sureEklenemedi: (n, k) => `Linked Quran: ${n}. sure eklenemedi (${k}).`,
+    eksikYok: "Linked Quran: kasada 114 surenin hepsi var.",
+    eksikBitti: (y, kalan, neden) => `Linked Quran: ${y} sure eklendi.${kalan ? ` ${kalan} sure eklenemedi (${neden}); «Eksik sureleri ekle» ile yeniden dene.` : ""}`,
+    neden: (k) => ({ hiz_siniri: "saatlik istek sınırı doldu, bir saat sonra", kaynak_yuklenemedi: "kelime meali kaynağı şu an yüklenemiyor" })[k] ?? k,
+    baskaHesap: "Bu kasa başka bir hesaba bağlanacak: bağlantıdaki anahtar kayıtlı senkron anahtarının yerine yazılır.",
+    bagla: "Bağla",
+    baglandi: "Linked Quran: kasa hesabına bağlandı. Mealleri seçip ayar ekranını kapat; sureler indirilir.",
   },
   en: {
     ad: "Linked Quran",
@@ -136,7 +139,7 @@ Yazılmayan: ${atlanan.join(" · ")}` : ""}`,
     tazele: "Refresh site text (all surahs)",
     tazeleEvet: "Refresh",
     metinBaslik: "Text in your vault",
-    metinAcikla: "Translations, word by word and Arabic are written into your surah pages from the site. Change them and close this screen to be asked to refresh all pages (the first time, run «Refresh site text»); a surah page you open also refreshes itself once a week. Your notes and drafts don't change.",
+    metinAcikla: "Translations, word by word and Arabic are written into your surah pages from the site. Choose them and close this screen to download the surahs missing from your vault (all 114); change them later and you are asked to refresh the existing pages. A surah page you open also refreshes itself once a week. Your notes and drafts don't change.",
     mealler: "Translations (up to 5, in tab order)",
     mealEkle: "Add a translation",
     kaldir: "Remove",
@@ -146,15 +149,18 @@ Yazılmayan: ${atlanan.join(" · ")}` : ""}`,
     katalogYok: "Could not load the translation list (offline?).",
     ayarOkunamadi: (p) => `Linked Quran: the translations on your pages didn't match exactly one catalog entry${p ? ` («${p}»)` : ""}. Choose them in the plugin settings.`,
     tazeleOzet: (n, mealler, kelime, arapca) =>
-      `The site text of ${n} surah page${n === 1 ? "" : "s"} will be refreshed: ${[arapca ? "Arabic" : null, kelime ? `word by word (${kelime.toUpperCase()})` : null, ...mealler].filter(Boolean).join(", ") || "no text"}. Your notes, drafts and own translation don't change.`,
+      `The site text of ${n} surah page${n === 1 ? "" : "s"} will be refreshed: ${[arapca ? "Arabic" : null, kelime ? `word by word (${kelime})` : null, ...mealler].filter(Boolean).join(", ") || "no text"}. Your notes, drafts and own translation don't change.`,
     tazeleBitti: (y, a, atlanan) => `Linked Quran: ${y} page${y === 1 ? "" : "s"} refreshed, ${a} already up to date.${atlanan.length ? `\nNot written: ${atlanan.join(" · ")}` : ""}`,
-    // 1.12.0 add surah (o168)
-    sureEkle: "Add surah…",
     snippetYenilendi: "Linked Quran: the vault's style snippet (linkedquran.css) was updated; the old one is linkedquran.css.bak.",
-    sureEkleIpucu: "Surah name or number",
+    // 1.16.0 setup from the plugin (o185)
+    sureEkle: "Add missing surahs",
     sureEkleMealYok: "Linked Quran: choose your translations under «Text in your vault» in the plugin settings first.",
-    sureEklendi: (ad) => `Linked Quran: ${ad} added.`,
-    sureEklenemedi: (n, k) => `Linked Quran: could not add surah ${n} (${k}).`,
+    eksikYok: "Linked Quran: all 114 surahs are already in this vault.",
+    eksikBitti: (y, kalan, neden) => `Linked Quran: ${y} surah${y === 1 ? "" : "s"} added.${kalan ? ` ${kalan} not added (${neden}); run «Add missing surahs» to retry.` : ""}`,
+    neden: (k) => ({ hiz_siniri: "hourly request limit reached, try again in an hour", kaynak_yuklenemedi: "word-by-word source unavailable" })[k] ?? k,
+    baskaHesap: "This vault will be connected to a different account: the link's key replaces the saved sync key.",
+    bagla: "Connect",
+    baglandi: "Linked Quran: vault connected to your account. Choose your translations and close the settings; the surahs will be downloaded.",
   },
 };
 
@@ -479,13 +485,20 @@ const tazele = (yerel, sunucu) => {
 /**
  * Eski kasanın ayarı (o154 `gecir.mjs` eşleştirmesi): `text_source` → `{arapca, kelime, mealler}`.
  * Meal etiketi `kasaDosyalari`'nınki: «ad · baskı (kaynak)». Her parça katalogda tam BİR etiketle
- * eşleşmeli; eşleşmeyen ya da birden fazla eşleşen varsa `{kod}` (ayar elle seçilir).
+ * eşleşmeli; eşleşmeyen ya da birden fazla eşleşen varsa `{kod}` (ayar elle seçilir). Kelime meali quran.com
+ * (`en`/`tr`) ya da `kaynaklar`dan (`dizin.json` `kelimeKaynaklari`, 1.16.0) adıyla tanınan kaynağın slug'ı.
  */
-const ayarCikar = (kaynak, katalog) => {
+const ayarCikar = (kaynak, katalog, kaynaklar = []) => {
   let r = String(kaynak ?? "");
   const arapca = /(?:^| · )Arabic: [^·]*/.test(r);
-  const kelime = /Word by word \((EN|TR)\): quran\.com/.exec(r)?.[1]?.toLowerCase() ?? "";
-  r = r.replace(/(?:^| · )Arabic: [^·]*?(?= · |$)/, "").replace(/(?:^| · )Word by word \((?:EN|TR)\): quran\.com/, "").replace(/^ · /, "");
+  const k = /(?:^| · )Word by word \((EN|TR)\): ([^·]*?)(?= · |$)/.exec(r);
+  let kelime = "";
+  if (k) {
+    const x = kaynaklar.find((t) => `${t.name} (${t.source_name}); quran.com where it does not align` === k[2]);
+    if (k[2] !== "quran.com" && !x) return { kod: "eslesmedi", parca: k[0].replace(/^ · /, "").slice(0, 80) };
+    kelime = x?.slug ?? k[1].toLowerCase();
+  }
+  r = r.replace(/(?:^| · )Arabic: [^·]*?(?= · |$)/, "").replace(k?.[0] ?? "", "").replace(/^ · /, "");
   const etiket = (t) => `${t.name}${t.edition ? ` · ${t.edition}` : ""} (${t.source_name})`;
   const mealler = [];
   for (let p = 0; p < r.length; ) {
@@ -1315,8 +1328,10 @@ module.exports = class LinkedQuran extends EklentiTabani {
     this.addRibbonIcon("book-open", this.m.gezgin, () => this.gezginAc(true));
     // Site metni (1.11.0, o166): ilk çalışma eski kasanın geçişidir, özet onayıyla (plan-reviewer o166 #5).
     this.addCommand({ id: "site-metni", name: this.m.tazele, callback: () => this.siteMetni() });
-    // Sure ekleme (1.12.0, o168): siteden kasa indirmeden.
-    this.addCommand({ id: "sure-ekle", name: this.m.sureEkle, callback: () => this.sureEkleSec() });
+    // Eksik sureler (1.16.0; 1.12.0 «Add surah…» seçicisinin yerine, aynı kimlik): ayar ekranı kapanınca da.
+    this.addCommand({ id: "sure-ekle", name: this.m.sureEkle, callback: () => this.eksikleriYaz() });
+    // Kasayı hesaba bağlama (1.16.0): /hesap'taki `obsidian://linkedquran?key=…` bağlantısı.
+    this.registerObsidianProtocolHandler("linkedquran", (q) => this.baglan(q.key));
     this.app.workspace.onLayoutReady(() => {
       if (this.app.loadLocalStorage(GEZGIN)) return;
       this.app.saveLocalStorage(GEZGIN, true);
@@ -1664,14 +1679,25 @@ module.exports = class LinkedQuran extends EklentiTabani {
    * (kullanıcı kararı «Statik dosya, her açılışta»); farklıysa eskisi `.bak`, yenisi kişinin iki boyut değeriyle
    * yazılır. Dosya yoksa, ağ yoksa ya da yanıt snippet değilse dokunulmaz. 1.13.0 öncesi kopyanın eklentisiz
    * kuralları eski gövde sınıfını arar; geçiş olana kadar (ilk çevrimiçi açılış) kartın üstüne biner.
+   * `kur` (1.16.0, eksik sureler yazılırken): dosya yoksa yazılır ve açılır (kapı 5, kullanıcı kararı o185
+   * «Kurulumda»: sonradan silinen ya da kapatılan snippet her açılışta geri gelmez).
    */
-  async snippetGuncelle() {
+  async snippetGuncelle(kur = false) {
     const a = this.app.vault.adapter;
-    const yol = `${this.app.vault.configDir}/snippets/linkedquran.css`;
+    const klasor = `${this.app.vault.configDir}/snippets`;
+    const yol = `${klasor}/linkedquran.css`;
     try {
-      if (!(await a.exists(yol))) return;
+      const var_ = await a.exists(yol);
+      if (!var_ && !kur) return;
       const r = await requestUrl({ url: `${this.ayar.adres.replace(/\/+$/, "")}/obsidian/linkedquran/linkedquran.css`, throw: false });
       if (r.status !== 200 || !r.text.startsWith(SNIPPET_BASI)) return;
+      if (!var_) {
+        if (!(await a.exists(klasor))) await a.mkdir(klasor);
+        await a.write(yol, r.text);
+        this.app.customCss?.requestLoadSnippets?.();
+        this.app.customCss?.setCssEnabledStatus?.("linkedquran", true);
+        return;
+      }
       const eski = await a.read(yol);
       const yeni = snippetYenile(eski, r.text);
       if (yeni === null) return;
@@ -1682,24 +1708,28 @@ module.exports = class LinkedQuran extends EklentiTabani {
     } catch { /* çevrimdışı ya da yazılamadı: kasadaki dosya kalır (yalnız .bak yazılmış olabilir) */ }
   }
 
-  /** Meal kataloğu (sitenin `dizin.json`'u, yalnız etkin olanlar) ve sure listesi; oturumda bir kez. */
+  /**
+   * Meal kataloğu (sitenin `dizin.json`'u, yalnız etkin olanlar) ve kelime kaynakları; oturumda bir kez. `/kuran/*`
+   * bir yıl `immutable` sunulur, istemci `?v=` ekler (`next.config.mjs`): eklenti eklemiyordu, Obsidian'ın ağ önbelleği
+   * eski kopyayı veriyordu (o185 S14: `kelimeKaynaklari` yoktu).
+   */
   async katalogAl() {
     if (this.katalog) return this.katalog;
     try {
-      const r = await requestUrl({ url: `${this.ayar.adres.replace(/\/+$/, "")}/kuran/dizin.json`, throw: false });
+      const r = await requestUrl({ url: `${this.ayar.adres.replace(/\/+$/, "")}/kuran/dizin.json?v=${Date.now()}`, throw: false });
       const d = r.status === 200 ? JSON.parse(r.text) : null;
       if (Array.isArray(d?.translations)) {
         this.katalog = d.translations.filter((x) => x.is_active);
-        this.sureler = Array.isArray(d.surahs) ? d.surahs : null; // «Sure ekle…» listesi (1.12.0)
+        this.kelimeKaynaklari = Array.isArray(d.kelimeKaynaklari) ? d.kelimeKaynaklari : []; // 1.16.0 Word by word
       }
     } catch { /* bozuk yanıt ya da çevrimdışı: varsayılan kalır */ }
     return this.katalog ?? null;
   }
 
-  /** Kasadaki sure dosyaları, numara sırasıyla. */
+  /** Kasadaki sure dosyaları, numara sırasıyla; eklentinin az önce yarattığı dosya önbellek dolmadan da (1.16.0). */
   sureDosyalari() {
     return this.app.vault.getMarkdownFiles()
-      .map((f) => ({ f, y: this.yer(f) })).filter((x) => x.y)
+      .map((f) => ({ f, y: this.yer(f, this.kendi.get(f.path)) })).filter((x) => x.y)
       .sort((a, b) => a.y.sure - b.y.sure || a.f.path.localeCompare(b.f.path));
   }
 
@@ -1708,9 +1738,14 @@ module.exports = class LinkedQuran extends EklentiTabani {
     if (this.ayar.metin) return this.ayar.metin;
     for (const { f } of this.sureDosyalari()) {
       const kaynak = this.app.metadataCache.getFileCache(f)?.frontmatter?.text_source;
-      if (kaynak) return ayarCikar(kaynak, katalog);
+      if (kaynak) return ayarCikar(kaynak, katalog, this.kelimeKaynaklari);
     }
     return { arapca: true, kelime: "", mealler: [] };
+  }
+
+  /** Kelime mealinin özetteki adı: kaynağın adı ya da `EN`/`TR` (quran.com). */
+  kelimeAdi(k) {
+    return this.kelimeKaynaklari?.find((t) => t.slug === k)?.name ?? k.toUpperCase();
   }
 
   /** «Site metnini yenile»: özet onayı, sonra sureler sırayla (`sirala`: senkronla üst üste binmez). */
@@ -1723,7 +1758,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
     const metin = this.metinAyari(katalog);
     if (metin.kod) return new Notice(this.m.ayarOkunamadi(metin.parca), 15_000);
     const ad = (slug) => katalog.find((t) => t.slug === slug)?.name ?? slug;
-    if (!(await onayla(this.app, this.m.tazeleOzet(dosyalar.length, metin.mealler.map(ad), metin.kelime, metin.arapca), this.m.tazeleEvet))) return;
+    if (!(await onayla(this.app, this.m.tazeleOzet(dosyalar.length, metin.mealler.map(ad), metin.kelime && this.kelimeAdi(metin.kelime), metin.arapca), this.m.tazeleEvet))) return;
     if (!this.ayar.metin) {
       this.ayar.metin = metin;
       await this.saveData(this.ayar);
@@ -1753,8 +1788,11 @@ module.exports = class LinkedQuran extends EklentiTabani {
     });
   }
 
-  /** Uçtan bir surenin kasa dosyası (`/api/lq/v1/kasa/{n}`; `kok`: kök dosyalar da). Dönüş: yanıt ya da kod. */
-  async metinAl(sure, kalip, komsular, metin, kok = false) {
+  /**
+   * Uçtan bir surenin kasa dosyası (`/api/lq/v1/kasa/{n}`; `kok`: kök dosyalar da, `kisisel`: kişinin listeleriyle,
+   * yalnız `kok` ile). Dönüş: yanıt ya da kod.
+   */
+  async metinAl(sure, kalip, komsular, metin, kok = false, kisisel = false) {
     const q = new URLSearchParams();
     for (const m of metin.mealler) q.append("meal", m);
     if (metin.kelime) q.set("kelime", metin.kelime);
@@ -1762,6 +1800,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
     q.set("kalip", kalip);
     for (const k of komsular) q.append("komsu", String(k));
     if (kok) q.set("kok", "1");
+    if (kok && kisisel) q.set("kisisel", "1");
     let r;
     try {
       r = await requestUrl({
@@ -1774,6 +1813,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
     }
     if (r.status === 401) return "anahtar_gecersiz";
     if (r.status === 429) return "hiz_siniri";
+    if (r.status === 503 && r.text.includes('"kaynak_yuklenemedi"')) return "kaynak_yuklenemedi"; // 2a: kelime kaynağı
     if (r.status !== 200) return `http_${r.status}`;
     let g;
     try {
@@ -1838,58 +1878,101 @@ module.exports = class LinkedQuran extends EklentiTabani {
     });
   }
 
-  /** 1.12.0: ayar ekranı kapanınca metin seçimi değiştiyse bütün sureler, bir kez sorarak (geçmiş kasada). */
-  ayarKapandi(ilk) {
-    if (this.ayar.gecti && JSON.stringify(this.ayar.metin ?? null) !== (this.sonYenilenen ?? ilk)) return this.siteMetni();
+  /**
+   * Ayar ekranı kapanınca: metin seçimi değiştiyse var olan sureler, bir kez sorarak (geçmiş kasada, 1.12.0); sonra
+   * kasada 114'ten az sure varsa eksiklerin hepsi (1.16.0, kullanıcı kararı o182 «Evet, hepsi»). Seçim yoksa sessiz.
+   */
+  async ayarKapandi(ilk) {
+    if (this.ayar.gecti && JSON.stringify(this.ayar.metin ?? null) !== (this.sonYenilenen ?? ilk)) await this.siteMetni();
+    const kasada = new Set(this.sureDosyalari().map((x) => x.y.sure));
+    if (this.ayar.anahtar && kasada.size < 114 && (this.ayar.metin || kasada.size)) await this.eksikleriYaz(true);
   }
 
-  async sureEkleSec() {
-    if (!this.ayar.anahtar) return new Notice(this.m.anahtarYok);
-    if (!(await this.katalogAl()) || !this.sureler) return new Notice(`${this.m.ad}: ${this.m.katalogYok}`);
-    const kasada = new Set(this.sureDosyalari().map((x) => x.y.sure));
-    new SureSecici(this.app, this, this.sureler.filter((s) => !kasada.has(s.number))).open();
+  /** Bağlantı (1.16.0): `obsidian://linkedquran?key=lq_…`. Biçimsiz anahtar yok sayılır; başka anahtarın yerine onayla. */
+  async baglan(key) {
+    const k = String(key ?? "").trim();
+    if (!ANAHTAR.test(k)) return;
+    if (this.ayar.anahtar && this.ayar.anahtar !== k && !(await onayla(this.app, this.m.baskaHesap, this.m.bagla))) return;
+    if (this.ayar.anahtar !== k) {
+      this.ayar.anahtar = k;
+      this.hepsi = true; // yeni anahtarla bütün notlar bir kez gitsin (ayar ekranındaki gibi)
+      await this.saveData(this.ayar);
+      this.zamanla();
+      this.yenidenCiz();
+    }
+    new Notice(this.m.baglandi, 10_000);
+    this.app.setting?.open();
+    this.app.setting?.openTabById(this.manifest.id);
   }
 
   /**
-   * «Sure ekle…» (1.12.0): kasada olmayan sure uçtan yaratılır, klasörü kasadaki surelerinki. Kök dosyalar (dizin,
-   * Contents.base) yalnız `Linked Quran/Surahs` altında ve yoksa; kasadaki komşular yeni sureye bağlanmak için yenilenir.
+   * Eksik sureler (1.16.0, eklentiyle kurulum; 1.12.0 «Sure ekle…»nin yerine): kasada olmayan bütün sureler numara
+   * sırasıyla uçtan yaratılır, klasörü kasadaki surelerinki. İlk başarılı istek `kok=1&kisisel=1`: kök dosyalar (dizin
+   * kişinin favori/ayraç/son konumuyla, Contents.base, Collections/*) yalnız `Linked Quran/Surahs` altında ve yoksa
+   * (kapı 3). Komşu bağlantısı bitince kasada olacak surelere; yarıda kalırsa bağlantı sonradan yazılan dosyaya çözülür.
+   * Kasadaki komşular yeni sureye bağlanmak için yenilenir. Anahtar, ağ, 429 ve 503 (kelime kaynağı) hatasında durur,
+   * kalanı söyler. Snippet yoksa yazılır ve açılır (kapı 5). `sessiz`: ayar ekranı kapanınca, seçimsiz uyarı yok.
    */
-  async sureEkle(n) {
-    if (!this.ayar.anahtar) return new Notice(this.m.anahtarYok);
-    const dosyalar = this.sureDosyalari();
+  async eksikleriYaz(sessiz = false) {
+    const uyar = (x, ms) => void (sessiz || new Notice(x, ms));
+    if (!this.ayar.anahtar) return uyar(this.m.anahtarYok);
     let metin = this.ayar.metin;
     if (!metin) {
-      if (!dosyalar.length) return new Notice(this.m.sureEkleMealYok, 10_000); // sessiz mealsiz varsayılan yok
+      if (!this.sureDosyalari().length) return uyar(this.m.sureEkleMealYok, 10_000); // sessiz mealsiz varsayılan yok
       const katalog = await this.katalogAl();
-      if (!katalog) return new Notice(`${this.m.ad}: ${this.m.katalogYok}`);
+      if (!katalog) return uyar(`${this.m.ad}: ${this.m.katalogYok}`);
       metin = this.metinAyari(katalog);
-      if (metin.kod) return new Notice(this.m.ayarOkunamadi(metin.parca), 15_000);
+      if (metin.kod) return uyar(this.m.ayarOkunamadi(metin.parca), 15_000);
       this.ayar.metin = metin;
       await this.saveData(this.ayar);
     }
+    if (!metin.mealler.length && !metin.kelime && !metin.arapca) return uyar(this.m.sureEkleMealYok, 10_000); // kapı 4
     return this.sirala(async () => {
-      const mevcut = new Map(dosyalar.map((x) => [x.y.sure, x]));
-      if (mevcut.has(n)) return;
-      const g = await this.metinAl(n, dosyalar[0]?.y.kalip ?? "default", [n - 1, n + 1].filter((k) => mevcut.has(k)), metin, true);
-      if (typeof g === "string") return new Notice(this.m.sureEklenemedi(n, g), 10_000);
+      await this.snippetGuncelle(true);
+      const mevcut = new Map(this.sureDosyalari().map((x) => [x.y.sure, x]));
+      const eksik = AYET_SAYILARI.map((_, i) => i + 1).filter((n) => !mevcut.has(n));
+      if (!eksik.length) return uyar(this.m.eksikYok);
       const ust = (p) => p.slice(0, Math.max(0, p.lastIndexOf("/")));
-      const klasor = ust(dosyalar[0]?.f.path ?? g.yol);
+      const ilk = mevcut.values().next().value;
+      let klasor = ilk && ust(ilk.f.path);
       const yaz = async (yol, icerik) => {
         if (this.app.vault.getAbstractFileByPath(yol)) return false;
+        if (ust(yol) && !this.app.vault.getAbstractFileByPath(ust(yol))) await this.app.vault.createFolder(ust(yol));
         this.kendi.set(yol, icerik);
         await this.app.vault.create(yol, icerik);
         return true;
       };
-      const yol = `${klasor}/${g.yol.split("/").pop()}`;
-      if (klasor && !this.app.vault.getAbstractFileByPath(klasor)) await this.app.vault.createFolder(klasor);
-      if (!(await yaz(yol, g.icerik))) return;
-      this.izler.set(yol, md5(g.icerik));
-      this.damga(n);
-      if (/(?:^|\/)Linked Quran\/Surahs$/.test(klasor)) for (const d of g.kok ?? []) await yaz(`${ust(klasor)}/${d.yol.split("/").pop()}`, d.icerik);
-      const yeni = new Set([...mevcut.keys(), n]);
-      for (const k of [n - 1, n + 1]) {
-        if (!mevcut.has(k)) continue;
-        const r = await this.sureyiTazele(mevcut.get(k).f, mevcut.get(k).y, yeni, metin);
+      const sonra = new Set([...mevcut.keys(), ...eksik]);
+      const eklenen = new Set();
+      const atlanan = [];
+      let [kok, dur] = [false, null];
+      for (const n of eksik) {
+        this.durum.setText(`${this.m.ad} ↓ ${mevcut.size + eklenen.size} / 114`);
+        const g = await this.metinAl(n, ilk?.y.kalip ?? "default", [n - 1, n + 1].filter((k) => sonra.has(k)), metin, !kok, true);
+        if (typeof g === "string") {
+          if (["anahtar_gecersiz", "hiz_siniri", "cevrimdisi", "kaynak_yuklenemedi"].includes(g)) {
+            dur = g;
+            break;
+          }
+          atlanan.push(`${n} (${g})`);
+          continue;
+        }
+        klasor ??= ust(g.yol);
+        const yol = `${klasor}/${g.yol.split("/").pop()}`;
+        if (!(await yaz(yol, g.icerik))) {
+          atlanan.push(`${n} (dosya_var)`);
+          continue;
+        }
+        this.izler.set(yol, md5(g.icerik));
+        this.damga(n);
+        eklenen.add(n);
+        if (kok || !g.kok) continue;
+        kok = true;
+        if (/(?:^|\/)Linked Quran\/Surahs$/.test(klasor)) for (const d of g.kok) await yaz(`${ust(klasor)}/${d.yol.slice(d.yol.indexOf("/") + 1)}`, d.icerik);
+      }
+      for (const [k, x] of mevcut) {
+        if (!eklenen.has(k - 1) && !eklenen.has(k + 1)) continue;
+        const r = await this.sureyiTazele(x.f, x.y, sonra, metin);
         if (r === "yazildi" || r === "ayni") continue;
         // Yazılamayan komşu (açık dosyada eklentinin kendi yazması da 30 sn kapısını işletir): ←/→ bağlantısı bir
         // sonraki açılışta gelsin, haftalık sayaç beklemesin (plan-reviewer sapma o168 #1, #4).
@@ -1897,11 +1980,16 @@ module.exports = class LinkedQuran extends EklentiTabani {
         this.kaydet();
         if (r !== "duzenleniyor") this.durum.setText(`${this.m.ad} ⚠ ${k}: ${r}`);
       }
-      if (!dosyalar.length && !this.ayar.gecti) {
-        this.ayar.gecti = true; // geçirilecek eski kasa yok
-        await this.saveData(this.ayar);
+      if (!mevcut.size && eklenen.size) {
+        this.sonYenilenen = JSON.stringify(metin); // hepsi bu seçimle yazıldı: ayar kapanınca yenileme sorulmasın
+        if (!this.ayar.gecti) {
+          this.ayar.gecti = true; // geçirilecek eski kasa yok: kendiliğinden yenileme ilk günden açık (kapı 2)
+          await this.saveData(this.ayar);
+        }
       }
-      new Notice(this.m.sureEklendi(yol.split("/").pop().replace(/\.md$/, "")));
+      if (!this.cubuk()) this.durum.setText(""); // senkron henüz yoksa ilerleme yazısı kalmasın
+      const kalan = eksik.length - eklenen.size;
+      new Notice(this.m.eksikBitti(eklenen.size, kalan, dur ? this.m.neden(dur) : atlanan.join(" · ")), kalan ? 20_000 : 8_000);
     });
   }
 
@@ -2685,27 +2773,6 @@ class AyetOnerisi extends EditorSuggest {
   }
 }
 
-/** «Sure ekle…» seçicisi (1.12.0): kasada olmayan sureler. */
-class SureSecici extends FuzzySuggestModal {
-  constructor(app, eklenti, sureler) {
-    super(app);
-    Object.assign(this, { eklenti, sureler });
-    this.setPlaceholder(eklenti.m.sureEkleIpucu);
-  }
-
-  getItems() {
-    return this.sureler;
-  }
-
-  getItemText(s) {
-    return `${s.number} ${s.name_en} · ${s.name_tr}`;
-  }
-
-  onChooseItem(s) {
-    this.eklenti.sureEkle(s.number);
-  }
-}
-
 // Lint `prefer-setting-definitions` uyarısı bilerek açık (satır içi kapatılamıyor): bildirimsel ayar API'si 1.13+ ve
 // ekranı o tanımlardan çizer; minAppVersion 1.8.7 için ikinci bir ayar yolu yazılmaz (o182).
 class Ayarlar extends PluginSettingTab {
@@ -2785,13 +2852,15 @@ class Ayarlar extends PluginSettingTab {
         });
       });
     }
-    new Setting(containerEl).setName(e.m.kelime).addDropdown((d) =>
-      d.addOption("", e.m.yok).addOption("en", "English").addOption("tr", "Türkçe").setValue(metin.kelime)
-        .onChange(async (v) => {
-          metin.kelime = v;
-          await kaydet();
-        }),
-    );
+    // 1.16.0: quran.com iki dili + sitenin kelime kaynakları (`dizin.json` `kelimeKaynaklari`).
+    new Setting(containerEl).setName(e.m.kelime).addDropdown((d) => {
+      d.addOption("", e.m.yok).addOption("en", "EN · quran.com").addOption("tr", "TR · quran.com");
+      for (const k of e.kelimeKaynaklari ?? []) d.addOption(k.slug, `${k.language.toUpperCase()} · ${k.name}`);
+      d.setValue(metin.kelime).onChange(async (v) => {
+        metin.kelime = v;
+        await kaydet();
+      });
+    });
     new Setting(containerEl).setName(e.m.arapca).addToggle((t) =>
       t.setValue(metin.arapca).onChange(async (v) => {
         metin.arapca = v;
