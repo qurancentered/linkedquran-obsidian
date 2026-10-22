@@ -13,7 +13,7 @@
 // Sitede silinen not kasada `deleted on site` işaretiyle kalır (kullanıcı
 // kararları o144 «yalnız yayımlanan gider», o145 «Aynısı olsun», rozet «A»).
 const {
-  Notice, Plugin: EklentiTabani, PluginSettingTab, Setting, TFile, moment, requestUrl, EditorSuggest, Modal, ItemView, MarkdownView, setIcon,
+  Notice, Plugin: EklentiTabani, PluginSettingTab, Setting, TFile, moment, requestUrl, EditorSuggest, Modal, ItemView, MarkdownView, MarkdownRenderer, setIcon,
   editorInfoField, editorLivePreviewField,
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- derlemesiz CommonJS eklenti: Obsidian modülü `require`la gelir
 } = require("obsidian");
@@ -21,7 +21,7 @@ const {
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-extraneous-dependencies -- yukarıdaki gerekçe
 const cm = { ...require("@codemirror/state"), ...require("@codemirror/view") };
 
-const SURUM = "1.17.1";
+const SURUM = "1.17.2";
 const ANAHTAR_ONEK = "lq_"; // senkron anahtarı biçimi (ayar ipucu)
 const ANAHTAR = /^lq_[A-Za-z0-9_-]{43}$/; // 1.16.0 bağlantısı: sitenin kasa ucundaki desen
 const VARSAYILAN = { anahtar: "", adres: "https://linkedquran.com" };
@@ -1452,14 +1452,22 @@ module.exports = class LinkedQuran extends EklentiTabani {
     document.body.classList.add("lq-plugin");
     // Meal sekmeleri: yakalama evresinde, Live Preview'ın kutuya tıkta kaynağı açmasından önce.
     const sekme = (e) => e.target.closest?.(".lq-tab");
+    // Telefonda dipnot işareti (1.17.2, o194): Obsidian'da dokunuşla önizleme yok, işaret sayfa sonu listesine atlıyordu.
+    const dipnot = (e) => (document.body.classList.contains("is-mobile") ? e.target.closest?.(".linkedquran a.footnote-link") : null);
     const durdur = (e) => {
-      if (!sekme(e)) return;
+      if (!sekme(e) && !dipnot(e)) return;
       e.preventDefault();
       e.stopPropagation();
     };
     this.registerDomEvent(document, "pointerdown", durdur, true);
     this.registerDomEvent(document, "mousedown", durdur, true);
     this.registerDomEvent(document, "click", (e) => {
+      const d = dipnot(e);
+      if (d) {
+        durdur(e);
+        void this.dipnotPenceresi(d);
+        return;
+      }
       const t = sekme(e);
       if (!t) return;
       durdur(e);
@@ -2191,6 +2199,9 @@ module.exports = class LinkedQuran extends EklentiTabani {
       if (sureMi) this.rozetKoy(k, kaynak);
     }
     if (sureMi) for (const k of el.querySelectorAll('.callout[data-callout="layers"]')) this.ciplerKoy(k, kaynak);
+    // Obsidian'ın sayfa sonu dipnot listesi: bölüm bilgisi belgenin son satırlarını verir, işaret satırı sanılıp
+    // gizleniyordu (telefonda dokunuş boş sayfa sonuna atlıyordu; 1.17.2, o194).
+    if (el.querySelector(":scope > section.footnotes")) return;
     const bilgi = ctx.getSectionInfo(el);
     const f = bilgi && this.app.vault.getAbstractFileByPath(ctx.sourcePath);
     if (!(f instanceof TFile) || !this.yer(f)) return;
@@ -2706,6 +2717,26 @@ module.exports = class LinkedQuran extends EklentiTabani {
         this.eylemTur(sonraki);
       }
     }
+  }
+
+  /**
+   * Telefonda dipnot (1.17.2, o194): tanım etkin sayfanın metninden (`[^id]: …`, meal kutusunda `> > ` önekli) okunur,
+   * küçük pencerede çizilir; uzun surede sayfa sonu listesi henüz çizilmemiş olabilir, DOM'a bakılmaz. Başlık mealin adı.
+   */
+  async dipnotPenceresi(a) {
+    const f = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+    const id = a.dataset.footref;
+    if (!f || !id) return;
+    const kacis = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const tanim = new RegExp(`^(?:>[ \\t]?)*\\[\\^${kacis}\\]:[ \\t]?(.*)$`, "m").exec(await this.app.vault.cachedRead(f))?.[1];
+    if (tanim === undefined) return;
+    const m = new Modal(this.app);
+    this.sonPencere = m;
+    const meal = a.closest('.callout[data-callout^="translation-"]')?.querySelector(".callout-title-inner")?.textContent;
+    m.titleEl.setText([meal, a.textContent].filter(Boolean).join(" "));
+    m.contentEl.addClass("lq-modal");
+    await MarkdownRenderer.render(this.app, tanim, m.contentEl, f.path, this);
+    m.open();
   }
 
   /** Pencere iskeleti (Obsidian `Modal`, mobilde de çalışır): başlık, alanlar, Cancel + ana düğme. */
