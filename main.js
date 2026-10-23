@@ -21,7 +21,7 @@ const {
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-extraneous-dependencies -- yukarıdaki gerekçe
 const cm = { ...require("@codemirror/state"), ...require("@codemirror/view") };
 
-const SURUM = "1.17.2";
+const SURUM = "1.17.3";
 const ANAHTAR_ONEK = "lq_"; // senkron anahtarı biçimi (ayar ipucu)
 const ANAHTAR = /^lq_[A-Za-z0-9_-]{43}$/; // 1.16.0 bağlantısı: sitenin kasa ucundaki desen
 const VARSAYILAN = { anahtar: "", adres: "https://linkedquran.com" };
@@ -1297,12 +1297,13 @@ class SureGezgini extends ItemView {
   async onClose() {
     window.clearTimeout(this.zaman); // 1.14.0: kapanınca bekleyen çizim kalmaz
   }
-  /** Sure sayfasıysa sure numarası (frontmatter; `tur`/`sure` o107 öncesi kasa). */
+  /**
+   * Kasanın sure sayfasıysa sure numarası. 1.17.3 (o194): senkronla aynı kural (`yer`, `KASA_YOLU` dahil); kasa dışında
+   * aynı frontmatter'ı taşıyan dosyalar (kullanıcının kişisel not dosyaları, kullanıcı kararı «Gezginden kalksın») ikiz
+   * satır olmaz.
+   */
   sure(f) {
-    const fm = f?.extension === "md" && this.app.metadataCache.getFileCache(f)?.frontmatter;
-    if (!fm || !/^linkedquran\/(?:surah|sure)$/.test(fm.type ?? fm.tur ?? "")) return null;
-    const s = Number(fm.surah ?? fm.sure);
-    return Number.isInteger(s) && s >= 1 && s <= 114 ? s : null;
+    return f?.extension === "md" ? this.p.yer(f)?.sure ?? null : null;
   }
   async onOpen() {
     const yakinda = () => {
@@ -1338,11 +1339,12 @@ class SureGezgini extends ItemView {
       const bas = oge.createDiv({ cls: "tree-item-self is-clickable mod-collapsible", attr: { "data-surah": s } });
       setIcon(bas.createDiv({ cls: `tree-item-icon collapse-icon${acik ? "" : " is-collapsed"}` }), "right-triangle");
       bas.createDiv({ cls: "tree-item-inner", text: f.basename });
+      // 1.17.3 (o194, kullanıcı kararı «Yalnız sayfalar açılsın»): sure adı yalnız sayfaları açıp kapatır, dosya açmaz
+      // (telefonda dosya açılınca çekmece kapanıyordu); sureye sayfa satırından gidilir.
       bas.addEventListener("click", () => {
         if (acik) this.acik.delete(s);
         else this.acik.add(s);
         this.ciz();
-        if (!acik) this.ac(f);
       });
       if (!acik) continue;
       const cocuk = oge.createDiv({ cls: "tree-item-children" });
