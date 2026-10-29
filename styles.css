@@ -34,6 +34,9 @@ body.is-mobile .lq-footnote .footnotes { display: block; }
    File properties in the side panel still shows them. Obsidian's own variables: its Live Preview rule outranks a plain display: none. */
 body.lq-plugin .linkedquran { --metadata-display-editing: none; --metadata-display-reading: none; }
 
+/* Surah navigator (1.18.0): the «Go to verse» box and «Continue» stay at the top while the surah list scrolls. */
+.lq-nav-top { position: sticky; top: 0; z-index: 1; background: var(--background-secondary); padding-bottom: var(--size-4-1); }
+
 /* Verse block ID (^2-255): Obsidian hides it in Reading view; faded in Live Preview. */
 .linkedquran .cm-blockid { opacity: .3; font-size: .75em; }
 

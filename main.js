@@ -21,7 +21,7 @@ const {
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-extraneous-dependencies -- yukarıdaki gerekçe
 const cm = { ...require("@codemirror/state"), ...require("@codemirror/view") };
 
-const SURUM = "1.17.3";
+const SURUM = "1.18.0";
 const ANAHTAR_ONEK = "lq_"; // senkron anahtarı biçimi (ayar ipucu)
 const ANAHTAR = /^lq_[A-Za-z0-9_-]{43}$/; // 1.16.0 bağlantısı: sitenin kasa ucundaki desen
 const VARSAYILAN = { anahtar: "", adres: "https://linkedquran.com" };
@@ -51,6 +51,30 @@ const sayfaAraliklari = (s) => {
   });
   return r;
 };
+// 1.18.0 (gezgin-ana): gezginin «ayete git» kutusu. 114 surenin [slug, name_en] (`public/kuran/dizin.json`;
+// test:kasa kaynağıyla karşılaştırır). Ad: önce tam eşleşme, sonra önek (önekte küçük numara); takı yalnız listedekiler
+// («Ya-Sin»in «Ya-»sı ad).
+const SURE_ADLARI = [["fatiha","Al-Fatihah"],["bakara","Al-Baqarah"],["ali-imran","Ali 'Imran"],["nisa","An-Nisa"],["maide","Al-Ma'idah"],["enam","Al-An'am"],["araf","Al-A'raf"],["enfal","Al-Anfal"],["tevbe","At-Tawbah"],["yunus","Yunus"],["hud","Hud"],["yusuf","Yusuf"],["rad","Ar-Ra'd"],["ibrahim","Ibrahim"],["hicr","Al-Hijr"],["nahl","An-Nahl"],["isra","Al-Isra"],["kehf","Al-Kahf"],["meryem","Maryam"],["taha","Taha"],["enbiya","Al-Anbiya"],["hacc","Al-Hajj"],["muminun","Al-Mu'minun"],["nur","An-Nur"],["furkan","Al-Furqan"],["suara","Ash-Shu'ara"],["neml","An-Naml"],["kasas","Al-Qasas"],["ankebut","Al-'Ankabut"],["rum","Ar-Rum"],["lokman","Luqman"],["secde","As-Sajdah"],["ahzab","Al-Ahzab"],["sebe","Saba"],["fatir","Fatir"],["yasin","Ya-Sin"],["saffat","As-Saffat"],["sad","Sad"],["zumer","Az-Zumar"],["mumin","Ghafir"],["fussilet","Fussilat"],["sura","Ash-Shuraa"],["zuhruf","Az-Zukhruf"],["duhan","Ad-Dukhan"],["casiye","Al-Jathiyah"],["ahkaf","Al-Ahqaf"],["muhammed","Muhammad"],["fetih","Al-Fath"],["hucurat","Al-Hujurat"],["kaf","Qaf"],["zariyat","Adh-Dhariyat"],["tur","At-Tur"],["necm","An-Najm"],["kamer","Al-Qamar"],["rahman","Ar-Rahman"],["vakia","Al-Waqi'ah"],["hadid","Al-Hadid"],["mucadele","Al-Mujadila"],["hasr","Al-Hashr"],["mumtehine","Al-Mumtahanah"],["saff","As-Saf"],["cuma","Al-Jumu'ah"],["munafikun","Al-Munafiqun"],["tegabun","At-Taghabun"],["talak","At-Talaq"],["tahrim","At-Tahrim"],["mulk","Al-Mulk"],["kalem","Al-Qalam"],["hakka","Al-Haqqah"],["mearic","Al-Ma'arij"],["nuh","Nuh"],["cinn","Al-Jinn"],["muzzemmil","Al-Muzzammil"],["muddessir","Al-Muddaththir"],["kiyame","Al-Qiyamah"],["insan","Al-Insan"],["murselat","Al-Mursalat"],["nebe","An-Naba"],["naziat","An-Nazi'at"],["abese","'Abasa"],["tekvir","At-Takwir"],["infitar","Al-Infitar"],["mutaffifin","Al-Mutaffifin"],["insikak","Al-Inshiqaq"],["buruc","Al-Buruj"],["tarik","At-Tariq"],["ala","Al-A'la"],["gasiye","Al-Ghashiyah"],["fecr","Al-Fajr"],["beled","Al-Balad"],["sems","Ash-Shams"],["leyl","Al-Layl"],["duha","Ad-Duhaa"],["insirah","Ash-Sharh"],["tin","At-Tin"],["alak","Al-'Alaq"],["kadir","Al-Qadr"],["beyyine","Al-Bayyinah"],["zilzal","Az-Zalzalah"],["adiyat","Al-'Adiyat"],["karia","Al-Qari'ah"],["tekasur","At-Takathur"],["asr","Al-'Asr"],["humeze","Al-Humazah"],["fil","Al-Fil"],["kureys","Quraysh"],["maun","Al-Ma'un"],["kevser","Al-Kawthar"],["kafirun","Al-Kafirun"],["nasr","An-Nasr"],["tebbet","Al-Masad"],["ihlas","Al-Ikhlas"],["felak","Al-Falaq"],["nas","An-Nas"]];
+const TAKI = /^(?:al|el|an|en|ar|er|as|es|ash|at|et|ad|ed|adh|az|ez|ath)[\s-]+/;
+const duz = (x) => x.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").replace(/ı/g, "i").replace(/[^a-z]/g, "");
+const SURE_ANAHTARLARI = SURE_ADLARI.map(([slug, ad]) => [duz(slug), duz(ad), duz(ad.toLowerCase().replace(TAKI, ""))]);
+/** «2:255», «2 255», «bakara 255», «al-baqarah:255», «2», «bakara» → {s, a} | {s} | {hata}; boşsa null. */
+const ayeteGit = (metin) => {
+  const q = metin.trim();
+  if (!q) return null;
+  const m = /^(\d{1,3}|\D+?)[\s:./-]*(\d{1,3})?$/.exec(q);
+  if (!m) return { hata: true };
+  let s = Number(m[1]);
+  if (!/^\d/.test(m[1])) {
+    const ad = duz(m[1].toLowerCase().replace(TAKI, ""));
+    const i = ad ? SURE_ANAHTARLARI.findIndex((k) => k.includes(ad)) : -1;
+    s = (i >= 0 ? i : SURE_ANAHTARLARI.findIndex((k) => ad && k.some((x) => x.startsWith(ad)))) + 1;
+  }
+  if (!(s >= 1 && s <= 114)) return { hata: true };
+  if (m[2] === undefined) return { s };
+  const a = Number(m[2]);
+  return a >= 1 && a <= AYET_SAYILARI[s - 1] ? { s, a } : { hata: true };
+};
 // --- sayfa bitir ---
 
 // --- snippet başla ---
@@ -74,6 +98,11 @@ const METIN = {
     gonder: "Şimdi eşitle",
     gezgin: "Sure gezginini aç",
     gezginBos: "Bu kasada sure sayfası yok.",
+    ayeteGit: "Ayete git",
+    ayeteGitIpucu: "Ayete git: 2:255 ya da bakara 255",
+    devam: "Kaldığın yer",
+    ayetYok: "Böyle bir ayet yok.",
+    sureKasadaYok: "kasada yok; «Eksik sureleri ekle» komutuyla eklenir.",
     anahtar: "Senkron anahtarı",
     anahtarAcikla: "linkedquran.com/hesap → Senkron → anahtar üret, buraya yapıştır.",
     adres: "Site adresi",
@@ -121,6 +150,11 @@ Yazılmayan: ${atlanan.join(" · ")}` : ""}`,
     gonder: "Sync now",
     gezgin: "Open surah navigator",
     gezginBos: "No surah pages in this vault.",
+    ayeteGit: "Go to verse",
+    ayeteGitIpucu: "Go to verse: 2:255 or baqarah 255",
+    devam: "Continue",
+    ayetYok: "No such verse.",
+    sureKasadaYok: "not in this vault; add it with «Add missing surahs».",
     anahtar: "Sync key",
     anahtarAcikla: "linkedquran.com/hesap → Sync → generate a key, paste it here.",
     adres: "Site address",
@@ -1271,6 +1305,7 @@ const kartAlani = (eklenti) => {
   });
 };
 
+const SON = "linkedquran-son"; // 1.18.0: bu cihazda son okunan {s, a} (app.saveLocalStorage; sitedeki «kaldığım yer»le bağlı değil)
 const GEZGIN = "linkedquran-gezgin"; // görünüm türü; app.saveLocalStorage anahtarı da: kenara bir kez konur, kişi kapatırsa geri gelmez
 /**
  * Sol kenarda sure gezgini (1.9.0, kullanıcı kararı o152 «A · Sayfa (ayetler)»): kasadaki sure
@@ -1321,17 +1356,62 @@ class SureGezgini extends ItemView {
     }));
     const s = this.sure(this.app.workspace.getActiveFile());
     if (s) this.acik.add(s);
-    this.ciz();
-  }
-  ciz() {
+    // 1.18.0 (gezgin-ana, kullanıcı kararı «B: gezgin ana sayfa»): tepede «ayete git» kutusu ve «Kaldığın yer»; altında
+    // sure listesi. Üst kısım bir kez kurulur, `ciz()` yalnız listeyi yeniler: kutudaki yazı ve odak kalır.
     const kok = this.contentEl;
-    const kaydirma = kok.scrollTop;
     kok.empty();
     kok.addClass("nav-files-container");
+    const ust = kok.createDiv({ cls: "lq-nav-top" });
+    this.kutu = ust.createDiv({ cls: "search-input-container" })
+      .createEl("input", { type: "search", placeholder: this.p.m.ayeteGitIpucu, attr: { enterkeyhint: "go", spellcheck: "false" } });
+    this.sonuc = ust.createDiv({ cls: "lq-nav-result" });
+    this.devam = ust.createDiv({ cls: "lq-nav-continue" });
+    this.liste = kok.createDiv();
+    this.kutu.addEventListener("input", () => this.sonucCiz());
+    this.kutu.addEventListener("keydown", (e) => e.key === "Enter" && this.git(ayeteGit(this.kutu.value)));
+    this.ciz();
+  }
+  /** Ayete git sonucu: tek satır («2:255 · Al-Baqarah») ya da neden gidilemediği. */
+  sonucCiz() {
+    const r = ayeteGit(this.kutu.value);
+    this.sonuc.empty();
+    if (!r) return;
+    if (r.hata) return void this.sonuc.createDiv({ cls: "tree-item-self", text: this.p.m.ayetYok });
+    const f = this.sureDosyasi.get(r.s);
+    const ad = `${r.s}${r.a ? `:${r.a}` : ""} · ${SURE_ADLARI[r.s - 1][1]}`;
+    if (!f) return void this.sonuc.createDiv({ cls: "tree-item-self", text: `${ad} — ${this.p.m.sureKasadaYok}` });
+    const x = this.sonuc.createDiv({ cls: "tree-item-self is-clickable", attr: { "data-go": `${r.s}:${r.a ?? ""}` } });
+    x.createDiv({ cls: "tree-item-inner", text: `→ ${ad}` });
+    x.addEventListener("click", () => this.git(r));
+  }
+  git(r) {
+    const f = r && !r.hata && this.sureDosyasi.get(r.s);
+    if (!f) return;
+    this.kutu.value = "";
+    this.sonucCiz();
+    this.p.sonYaz(r.s, r.a ?? 1);
+    this.ac(f, r.a);
+  }
+  /** Bu cihazda son okunan ayet (`SON`); sure kasadaysa. */
+  devamCiz() {
+    const son = this.app.loadLocalStorage(SON);
+    const f = son && this.sureDosyasi.get(son.s);
+    this.devam.empty();
+    if (!f) return;
+    const x = this.devam.createDiv({ cls: "tree-item-self is-clickable", attr: { "data-continue": `${son.s}:${son.a}` } });
+    setIcon(x.createDiv({ cls: "tree-item-icon" }), "bookmark");
+    x.createDiv({ cls: "tree-item-inner", text: `${this.p.m.devam} · ${son.s}:${son.a} · ${SURE_ADLARI[son.s - 1][1]}` });
+    x.addEventListener("click", () => this.ac(f, son.a));
+  }
+  ciz() {
+    const kok = this.liste;
+    const kaydirma = this.contentEl.scrollTop;
+    kok.empty();
     const sureler = this.app.vault.getMarkdownFiles()
       .map((f) => [this.sure(f), f]).filter(([s]) => s)
       .sort((a, b) => a[0] - b[0] || a[1].path.localeCompare(b[1].path));
     this.dosyalar = new Set(sureler.map(([, f]) => f.path));
+    this.sureDosyasi = new Map([...sureler].reverse()); // aynı sure iki dosyadaysa listede ilki
     if (!sureler.length) kok.createDiv({ cls: "pane-empty", text: this.p.m.gezginBos });
     for (const [s, f] of sureler) {
       const acik = this.acik.has(s);
@@ -1354,13 +1434,16 @@ class SureGezgini extends ItemView {
         x.createDiv({ cls: "tree-item-inner", text: `p. ${sayfa} (${b === son ? b : `${b}–${son}`})` });
         x.addEventListener("click", () => {
           this.secili = `${s}:${sayfa}`; // son dokunulan sayfa vurgulu: uzun listede yer kaybolmasın
-          kok.querySelectorAll(".tree-item-self.is-active").forEach((y) => y.removeClass("is-active"));
+          this.contentEl.querySelectorAll(".tree-item-self.is-active").forEach((y) => y.removeClass("is-active"));
           x.addClass("is-active");
+          this.p.sonYaz(s, b);
           this.ac(f, b);
         });
       }
     }
-    kok.scrollTop = kaydirma;
+    this.contentEl.scrollTop = kaydirma;
+    this.sonucCiz();
+    this.devamCiz();
   }
   /** Dosyayı açar; `bas` verilirse o ayetten başlayan ilk `## N` başlığına (yoksa dosyanın başına). */
   async ac(f, bas) {
@@ -1438,6 +1521,12 @@ module.exports = class LinkedQuran extends EklentiTabani {
     // Sure gezgini (1.9.0): sol kenarda, bu cihazda bir kez kendiliğinden; sonra komutla.
     this.registerView(GEZGIN, (leaf) => new SureGezgini(leaf, this));
     this.addCommand({ id: "gezgin", name: this.m.gezgin, callback: () => this.gezginAc(true) });
+    // 1.18.0: gezgini açıp «ayete git» kutusuna odaklanır.
+    this.addCommand({ id: "ayete-git", name: this.m.ayeteGit, callback: async () => {
+      const l = await this.gezginAc(true);
+      await l.loadIfDeferred?.();
+      l.view.kutu?.focus();
+    } });
     // 1.15.0: telefonda sol çekmece tek sekme gösterir, gezgin «Files ⇅»'nin arkasında kalıyordu (o182).
     this.addRibbonIcon("book-open", this.m.gezgin, () => this.gezginAc(true));
     // Site metni (1.11.0, o166): ilk çalışma eski kasanın geçişidir, özet onayıyla (plan-reviewer o166 #5).
@@ -1481,6 +1570,9 @@ module.exports = class LinkedQuran extends EklentiTabani {
     }, true);
     this.registerDomEvent(document, "scroll", (e) => {
       if (e.target.classList?.contains("lq-translations")) mealSec(e.target);
+      // 1.18.0: okurken son ayet (gezginin «Kaldığın yer»i); kaydırma durduktan 1,5 sn sonra.
+      window.clearTimeout(this.sonZaman);
+      this.sonZaman = window.setTimeout(() => this.konumYaz(), 1500);
     }, { capture: true, passive: true });
 
     // Açılışta her dosya için `create` gelir; olaylar layout hazır olunca kaydedilir.
@@ -1525,6 +1617,7 @@ module.exports = class LinkedQuran extends EklentiTabani {
     window.clearTimeout(this.zaman);
     window.clearTimeout(this.yazZaman);
     window.clearTimeout(this.cizZaman);
+    window.clearTimeout(this.sonZaman);
   }
 
   zamanla() {
@@ -1566,7 +1659,26 @@ module.exports = class LinkedQuran extends EklentiTabani {
       l = this.app.workspace.getLeftLeaf(false);
       await l.setViewState({ type: GEZGIN, active: false });
     }
-    if (goster) this.app.workspace.revealLeaf(l);
+    if (goster) await this.app.workspace.revealLeaf(l);
+    return l;
+  }
+
+  /** «Kaldığın yer» (1.18.0): bu cihazda, `SON`; açık gezgin yeniden çizilir. */
+  sonYaz(s, a) {
+    this.app.saveLocalStorage(SON, { s, a });
+    for (const l of this.app.workspace.getLeavesOfType(GEZGIN)) l.view.devamCiz?.();
+  }
+
+  /** Etkin sure sayfasında görünümün tepesindeki satırdan önceki son `## N` başlığı. */
+  konumYaz() {
+    const v = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const s = v?.file && this.yer(v.file)?.sure;
+    if (!s) return;
+    const satir = v.currentMode.getScroll();
+    const h = (this.app.metadataCache.getFileCache(v.file)?.headings ?? [])
+      .filter((x) => x.level === 2 && /^\d+$/.test(x.heading) && x.position.start.line <= satir).at(-1);
+    const son = this.app.loadLocalStorage(SON);
+    if (h && (son?.s !== s || son?.a !== +h.heading)) this.sonYaz(s, +h.heading);
   }
 
   /** Sure dosyasıysa {sure, kalip}; frontmatter önbellekten, yoksa metinden. */
