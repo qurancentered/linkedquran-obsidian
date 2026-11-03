@@ -21,7 +21,7 @@ const {
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-extraneous-dependencies -- yukarıdaki gerekçe
 const cm = { ...require("@codemirror/state"), ...require("@codemirror/view") };
 
-const SURUM = "1.18.0";
+const SURUM = "1.18.1";
 const ANAHTAR_ONEK = "lq_"; // senkron anahtarı biçimi (ayar ipucu)
 const ANAHTAR = /^lq_[A-Za-z0-9_-]{43}$/; // 1.16.0 bağlantısı: sitenin kasa ucundaki desen
 const VARSAYILAN = { anahtar: "", adres: "https://linkedquran.com" };
@@ -102,7 +102,7 @@ const METIN = {
     ayeteGitIpucu: "Ayete git: 2:255 ya da bakara 255",
     devam: "Kaldığın yer",
     ayetYok: "Böyle bir ayet yok.",
-    sureKasadaYok: "kasada yok; «Eksik sureleri ekle» komutuyla eklenir.",
+    sureKasadaYok: (k) => `kasada yok; «${k}» komutuyla eklenir.`,
     anahtar: "Senkron anahtarı",
     anahtarAcikla: "linkedquran.com/hesap → Senkron → anahtar üret, buraya yapıştır.",
     adres: "Site adresi",
@@ -154,7 +154,7 @@ Yazılmayan: ${atlanan.join(" · ")}` : ""}`,
     ayeteGitIpucu: "Go to verse: 2:255 or baqarah 255",
     devam: "Continue",
     ayetYok: "No such verse.",
-    sureKasadaYok: "not in this vault; add it with «Add missing surahs».",
+    sureKasadaYok: (k) => `not in this vault; add it with «${k}».`,
     anahtar: "Sync key",
     anahtarAcikla: "linkedquran.com/hesap → Sync → generate a key, paste it here.",
     adres: "Site address",
@@ -1379,7 +1379,7 @@ class SureGezgini extends ItemView {
     if (r.hata) return void this.sonuc.createDiv({ cls: "tree-item-self", text: this.p.m.ayetYok });
     const f = this.sureDosyasi.get(r.s);
     const ad = `${r.s}${r.a ? `:${r.a}` : ""} · ${SURE_ADLARI[r.s - 1][1]}`;
-    if (!f) return void this.sonuc.createDiv({ cls: "tree-item-self", text: `${ad} — ${this.p.m.sureKasadaYok}` });
+    if (!f) return void this.sonuc.createDiv({ cls: "tree-item-self", text: `${ad} — ${this.p.m.sureKasadaYok(this.p.m.sureEkle)}` });
     const x = this.sonuc.createDiv({ cls: "tree-item-self is-clickable", attr: { "data-go": `${r.s}:${r.a ?? ""}` } });
     x.createDiv({ cls: "tree-item-inner", text: `→ ${ad}` });
     x.addEventListener("click", () => this.git(r));
@@ -1394,6 +1394,7 @@ class SureGezgini extends ItemView {
   }
   /** Bu cihazda son okunan ayet (`SON`); sure kasadaysa. */
   devamCiz() {
+    if (!this.devam) return; // 1.18.1: onOpen'dan önce `sonYaz` zamanlayıcısı
     const son = this.app.loadLocalStorage(SON);
     const f = son && this.sureDosyasi.get(son.s);
     this.devam.empty();
